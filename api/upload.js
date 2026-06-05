@@ -123,12 +123,24 @@ export default async function handler(req, res) {
           throw new Error('Nom de fichier invalide');
         }
 
+        // URL de callback explicite — nécessaire avec @vercel/blob v2 car
+        // VERCEL_PROJECT_PRODUCTION_URL peut ne pas être défini automatiquement.
+        const host =
+          req.headers['x-forwarded-host'] ||
+          req.headers.host ||
+          process.env.VERCEL_PROJECT_PRODUCTION_URL ||
+          process.env.VERCEL_URL;
+        const callbackUrl = host ? `https://${host}/api/upload` : undefined;
+        console.log('[upload] callbackUrl:', callbackUrl);
+
         return {
           // Seuls les fichiers binaires chiffrés sont acceptés
           allowedContentTypes: ['application/octet-stream'],
           maximumSizeInBytes: MAX_FILE_SIZE_MB * 1024 * 1024,
           // Le pathname est contrôlé côté client (transfers/{code}/file.enc)
           addRandomSuffix: false,
+          // callbackUrl explicite pour que Vercel Blob CDN sache où rappeler
+          callbackUrl,
           // tokenPayload est retransmis tel quel à onUploadCompleted
           tokenPayload: JSON.stringify({
             code:         payload.code,
@@ -145,6 +157,7 @@ export default async function handler(req, res) {
        * NE contient pas la clé de chiffrement.
        */
       onUploadCompleted: async ({ blob, tokenPayload }) => {
+        console.log('[upload] onUploadCompleted appelé — blob.pathname:', blob.pathname);
         const { code, originalName, size, expiresAt } = JSON.parse(tokenPayload);
 
         const meta = {
