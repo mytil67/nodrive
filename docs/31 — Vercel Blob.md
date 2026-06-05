@@ -76,8 +76,8 @@ const response = await fetch(blob.url, {
 Upload chunk → put() dans transfers/
 Dernier chunk → put() metadata + collecte chunkUrls
 Download    → lecture via proxy (download.js)
-             → suppression après premier téléchargement
-Expiration  → suppression par cron cleanup (24h)
+             → suppression immédiate après le premier téléchargement
+Filet sécu  → si jamais téléchargé, cron cleanup supprime à l'expiration
 Orphelins   → suppression par cron cleanup phase 2
 ```
 

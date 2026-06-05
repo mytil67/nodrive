@@ -4,7 +4,9 @@
 
 ## Description
 
-Tâche planifiée exécutée quotidiennement par Vercel Cron. Supprime les transferts expirés et les chunks orphelins.
+Tâche planifiée exécutée quotidiennement par Vercel Cron. Agit comme **filet de sécurité** : supprime les transferts jamais téléchargés (expirés) et les chunks orphelins d'uploads échoués.
+
+> En usage normal, les fichiers sont supprimés immédiatement après le premier téléchargement (`maxDownloads=1`). Le cron ne traite que les cas résiduels.
 
 ## Planification
 
@@ -31,7 +33,7 @@ Authorization: Bearer {CRON_SECRET}
 - Comparaison timing-safe via `crypto.timingSafeEqual`
 - Toute requête sans le bon secret → 401
 
-## Phase 1 : Suppression des transferts expirés
+## Phase 1 : Suppression des transferts expirés (jamais téléchargés)
 
 ```
 Pour chaque metadata/*.json :

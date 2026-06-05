@@ -7,8 +7,8 @@
 | `BLOB_READ_WRITE_TOKEN` | **Oui** | — | Token Vercel Blob Storage (lecture/écriture) |
 | `CRON_SECRET` | **Oui** | — | Secret pour authentifier les appels cron Vercel |
 | `MAX_FILE_SIZE_MB` | Non | `25` | Taille max par transfert en Mo |
-| `EXPIRATION_HOURS` | Non | `24` | Durée de vie d'un transfert en heures |
-| `MAX_DOWNLOADS` | Non | `1` | Nombre de téléchargements avant suppression |
+| `EXPIRATION_HOURS` | Non | `24` | Filet de sécurité : durée max avant suppression par le cron (si jamais téléchargé) |
+| `MAX_DOWNLOADS` | Non | `1` | Suppression après N téléchargement(s) — comportement principal |
 
 ## Frontend (Variables Vite — préfixe `VITE_`)
 
