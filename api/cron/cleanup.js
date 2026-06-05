@@ -11,6 +11,8 @@
 
 import { list, del } from '@vercel/blob';
 
+const BLOB_TOKEN = () => process.env.BLOB_READ_WRITE_TOKEN;
+
 export default async function handler(req, res) {
   // Vérification du secret Vercel Cron — toujours requis
   const authHeader = req.headers['authorization'];
@@ -36,7 +38,9 @@ export default async function handler(req, res) {
 
       for (const metaBlob of blobs) {
         try {
-          const response = await fetch(metaBlob.url);
+          const response = await fetch(metaBlob.url, {
+            headers: { Authorization: `Bearer ${BLOB_TOKEN()}` },
+          });
           if (!response.ok) continue;
           const meta = await response.json();
 

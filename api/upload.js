@@ -64,14 +64,29 @@ export default async function handler(req, res) {
   }
 
   const expiresAt   = Date.now() + EXPIRATION_HOURS * 3600 * 1000;
-  // Token aléatoire 128 bits requis pour supprimer ce transfert
-  // Retourné une seule fois dans la réponse — jamais stocké côté client par le serveur
   const deleteToken = randomBytes(16).toString('hex');
 
+  // Vérification de la taille réelle du body (le header Content-Length peut mentir)
+  const maxBodyBytes = MAX_FILE_SIZE_MB * 1024 * 1024 + 128; // marge pour IV + tag GCM
+  const contentLength = parseInt(req.headers['content-length'] || '0', 10);
+  if (contentLength > maxBodyBytes) {
+    return res.status(413).json({ error: `Fichier trop volumineux (max ${MAX_FILE_SIZE_MB} Mo)` });
+  }
+
   try {
-    // Streaming direct : le corps de la requête (flux Node.js) est pipé vers Vercel Blob
-    // sans bufferisation en mémoire — pas de limite bodyParser.
-    const blob = await put(`transfers/${code}/file.enc`, req, {
+    // Collecter le body pour vérifier la taille réelle avant de stocker
+    const chunks = [];
+    let totalBytes = 0;
+    for await (const chunk of req) {
+      totalBytes += chunk.length;
+      if (totalBytes > maxBodyBytes) {
+        return res.status(413).json({ error: `Fichier trop volumineux (max ${MAX_FILE_SIZE_MB} Mo)` });
+      }
+      chunks.push(chunk);
+    }
+    const body = Buffer.concat(chunks, totalBytes);
+
+    const blob = await put(`transfers/${code}/file.enc`, body, {
       access:          'private',
       contentType:     'application/octet-stream',
       addRandomSuffix: false,

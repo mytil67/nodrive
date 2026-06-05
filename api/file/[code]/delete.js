@@ -11,6 +11,7 @@
  */
 
 import { list, del } from '@vercel/blob';
+import { timingSafeEqual as cryptoTimingSafeEqual } from 'crypto';
 
 const CODE_REGEX        = /^[A-Z2-9]{6}$/;
 const DELETE_TOKEN_REGEX = /^[0-9a-f]{32}$/;
@@ -46,8 +47,8 @@ export default async function handler(req, res) {
     }
     const meta = await metaResponse.json();
 
-    // Comparaison en temps constant pour éviter les timing attacks
-    if (!timingSafeEqual(deleteToken, meta.deleteToken)) {
+    // Comparaison en temps constant (crypto natif Node.js)
+    if (!safeEqual(deleteToken, meta.deleteToken)) {
       return res.status(403).json({ error: 'Token de suppression invalide' });
     }
 
@@ -65,14 +66,9 @@ export default async function handler(req, res) {
 }
 
 /**
- * Comparaison de chaînes en temps constant (évite les timing attacks).
- * Implémentation simple basée sur XOR caractère par caractère.
+ * Comparaison de chaînes en temps constant via crypto.timingSafeEqual natif.
  */
-function timingSafeEqual(a, b) {
+function safeEqual(a, b) {
   if (a.length !== b.length) return false;
-  let diff = 0;
-  for (let i = 0; i < a.length; i++) {
-    diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  }
-  return diff === 0;
+  return cryptoTimingSafeEqual(Buffer.from(a), Buffer.from(b));
 }

@@ -110,7 +110,7 @@ Le script `prebuild` incrémente automatiquement le numéro de patch dans `front
 | `MAX_FILE_SIZE_MB` | `4` | Taille maximale par fichier (Mo) |
 | `EXPIRATION_HOURS` | `24` | Durée de vie des transferts (heures) |
 | `MAX_DOWNLOADS` | `1` | Nombre de téléchargements autorisés par transfert |
-| `VITE_MAX_FILE_SIZE_MB` | `25` | Idem, exposé au frontend pour validation côté client |
+| `VITE_MAX_FILE_SIZE_MB` | `4` | Idem, exposé au frontend pour validation côté client |
 
 ---
 

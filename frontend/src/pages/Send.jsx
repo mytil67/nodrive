@@ -7,7 +7,7 @@ import { uploadEncryptedFile, checkServerHealth } from '../api/client.js';
 import { generateTransferCode, generateSalt, deriveKeyFromPassphrase, encryptFile } from '../utils/crypto.js';
 import { formatSize } from '../utils/format.js';
 
-const MAX_FILE_SIZE_MB    = parseInt(import.meta.env.VITE_MAX_FILE_SIZE_MB || '25', 10);
+const MAX_FILE_SIZE_MB    = parseInt(import.meta.env.VITE_MAX_FILE_SIZE_MB || '4', 10);
 const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
 
 /**
