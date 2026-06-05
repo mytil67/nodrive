@@ -25,7 +25,7 @@ if (major < 18) {
   process.exit(1);
 }
 
-const DEFAULT_URL = 'https://nodrive.vercel.app';
+const DEFAULT_URL = process.env.NODRIVE_URL || '';
 
 // ── Parsing des arguments ─────────────────────────────────────────────────────
 
@@ -42,8 +42,11 @@ Options :
   -p, --password <pass>    Mot de passe (min. 6 caractères)
   -o, --output <dossier>   Dossier de destination (défaut : répertoire courant)
       --token <token>      Delete token (retourné lors de l'envoi)
-      --url <url>          URL du serveur NoDrive (défaut : ${DEFAULT_URL})
+      --url <url>          URL du serveur NoDrive (ou variable NODRIVE_URL)
   -h, --help               Afficher cette aide
+
+Vous devez déployer votre propre instance NoDrive et fournir son URL
+via --url ou la variable d'environnement NODRIVE_URL.
 `);
   process.exit(0);
 }
@@ -236,6 +239,13 @@ async function cmdCancel({ target, token, url }) {
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 const args = parseArgs(process.argv);
+
+if (!args.url) {
+  console.error('Erreur : URL du serveur NoDrive non définie.');
+  console.error('Utilisez --url <url> ou définissez la variable NODRIVE_URL.');
+  console.error('Vous devez déployer votre propre instance — voir le README.');
+  process.exit(1);
+}
 
 switch (args.command) {
   case 'send':    await cmdSend(args);    break;

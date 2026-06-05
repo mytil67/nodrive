@@ -126,6 +126,18 @@ Le script `prebuild` incrémente automatiquement le numéro de patch dans `front
 
 Un outil en ligne de commande est disponible dans le dossier `cli/`. Il utilise la même cryptographie (AES-256-GCM + PBKDF2) et appelle l'API déployée. Aucune dépendance — Node.js ≥ 18 suffit.
 
+### Configuration
+
+Le CLI nécessite l'URL de **votre propre instance** NoDrive (pas d'instance partagée par défaut) :
+
+```bash
+# Option 1 : variable d'environnement (recommandé)
+export NODRIVE_URL=https://mon-instance.vercel.app
+
+# Option 2 : flag --url à chaque commande
+nodrive send fichier.pdf --url https://mon-instance.vercel.app
+```
+
 ### Installation
 
 ```bash
@@ -152,9 +164,6 @@ nodrive receive AB3K7P -p "monmotdepasse" -o ~/Downloads
 
 # Annuler un transfert (avant téléchargement)
 nodrive cancel AB3K7P --token a3f9...
-
-# Pointeur vers une instance custom
-nodrive send fichier.zip -p "pass" --url https://mon-instance.vercel.app
 ```
 
 ### Publication npm
