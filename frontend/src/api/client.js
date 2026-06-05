@@ -52,7 +52,12 @@ export function uploadEncryptedFile(code, encryptedData, fileMeta, onProgress) {
     xhr.addEventListener('load', () => {
       if (xhr.status >= 200 && xhr.status < 300) {
         onProgress(100);
-        resolve();
+        try {
+          const body = JSON.parse(xhr.responseText);
+          resolve(body.deleteToken || null);
+        } catch {
+          resolve(null);
+        }
       } else {
         let msg = `Erreur HTTP ${xhr.status}`;
         try { const b = JSON.parse(xhr.responseText); if (b.error) msg = b.error; } catch {}
@@ -76,10 +81,12 @@ export async function getFileInfo(code) {
   return body;
 }
 
-export async function deleteTransfer(code) {
-  try {
-    await fetch(`/api/file/${encodeURIComponent(code)}/delete`, { method: 'POST' });
-  } catch {
-    // best-effort
-  }
+export async function cancelTransfer(code, deleteToken) {
+  const res = await fetch(`/api/file/${encodeURIComponent(code)}/delete`, {
+    method: 'POST',
+    headers: { 'x-delete-token': deleteToken },
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `Erreur HTTP ${res.status}`);
+  return body;
 }

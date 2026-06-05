@@ -860,6 +860,40 @@ a:hover {
   padding: 0.35rem 0.75rem;
 }
 
+/* ---- Bouton annulation ---- */
+.btn--cancel {
+  background: transparent;
+  color: var(--color-muted);
+  border: 1px solid var(--color-border);
+  font-size: 0.78rem;
+  padding: 0.35rem 0.85rem;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: color var(--transition), border-color var(--transition);
+}
+.btn--cancel:hover:not(:disabled) {
+  color: var(--color-danger);
+  border-color: var(--color-danger);
+}
+.btn--cancel:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.code-display__cancel {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--color-border);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+}
+.code-display__cancel-error {
+  font-size: 0.8rem;
+  color: var(--color-danger);
+}
+.code-display__success-badge--grey {
+  color: var(--color-muted);
+}
+
 /* ---- Footer global ---- */
 .app-footer {
   display: flex;

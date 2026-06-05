@@ -17,6 +17,7 @@
  */
 
 import { put } from '@vercel/blob';
+import { randomBytes } from 'crypto';
 
 const MAX_FILE_SIZE_MB = parseInt(process.env.MAX_FILE_SIZE_MB || '4', 10);
 const EXPIRATION_HOURS = parseInt(process.env.EXPIRATION_HOURS || '24', 10);
@@ -62,7 +63,10 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'Sel cryptographique invalide' });
   }
 
-  const expiresAt = Date.now() + EXPIRATION_HOURS * 3600 * 1000;
+  const expiresAt   = Date.now() + EXPIRATION_HOURS * 3600 * 1000;
+  // Token aléatoire 128 bits requis pour supprimer ce transfert
+  // Retourné une seule fois dans la réponse — jamais stocké côté client par le serveur
+  const deleteToken = randomBytes(16).toString('hex');
 
   try {
     // Streaming direct : le corps de la requête (flux Node.js) est pipé vers Vercel Blob
@@ -82,6 +86,7 @@ export default async function handler(req, res) {
       originalName:  sanitizeFilename(originalName),
       size:          sizeBytes,
       salt,                    // sel PBKDF2 128 bits (hex) — public, pas secret
+      deleteToken,             // token 128 bits requis pour DELETE — jamais renvoyé via /info
       blobPathname:  blob.pathname,
       blobUrl:       blob.url,
       createdAt:     Date.now(),
@@ -99,7 +104,8 @@ export default async function handler(req, res) {
     });
 
     console.log(`[upload] Transfert ${code} enregistré — expire ${new Date(expiresAt).toISOString()}`);
-    return res.json({ ok: true });
+    // deleteToken retourné une seule fois — l'expéditeur doit le conserver pour annuler
+    return res.json({ ok: true, deleteToken });
 
   } catch (err) {
     console.error('[upload] Erreur:', err.message);

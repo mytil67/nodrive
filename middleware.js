@@ -1,0 +1,96 @@
+/**
+ * Vercel Edge Middleware — NoDrive
+ *
+ * S'exécute en périphérie (edge) avant chaque requête /api/*.
+ *
+ * Responsabilités :
+ *  1. Rate limiting in-memory par IP (best-effort — par instance edge)
+ *     Limites : 5 req/min sur /api/upload, 60 req/min sur les autres endpoints
+ *  2. Header X-RateLimit-Remaining pour le diagnostic
+ *
+ * NOTE : les security headers (CSP, X-Frame-Options, etc.) sont définis
+ * dans vercel.json "headers" pour s'appliquer aussi aux assets statiques.
+ *
+ * Limites connues :
+ *  - Le cache in-memory est par instance edge (pas distribué).
+ *    Pour un rate-limiting précis à grande échelle, utiliser @vercel/kv.
+ *  - En cas d'attaque distribuée, ajouter Vercel Firewall (plan Pro).
+ */
+
+import { next, ipAddress } from '@vercel/edge';
+
+// ── Configuration des limites ──────────────────────────────────────────────
+const RATE_LIMITS = {
+  '/api/upload':              { max: 5,  windowMs: 60_000 }, // 5 uploads/min
+  '/api/file':                { max: 30, windowMs: 60_000 }, // 30 download+info/min
+  default:                    { max: 60, windowMs: 60_000 }, // 60 req/min autres
+};
+
+// ── Cache in-memory (scope module = par instance edge, éphémère) ───────────
+/** @type {Map<string, { count: number, resetAt: number }>} */
+const rlCache = new Map();
+
+// Nettoyage périodique pour éviter une fuite mémoire sur les instances longues
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, entry] of rlCache) {
+    if (now > entry.resetAt) rlCache.delete(key);
+  }
+}, 120_000);
+
+function getLimit(pathname) {
+  for (const [prefix, limit] of Object.entries(RATE_LIMITS)) {
+    if (prefix !== 'default' && pathname.startsWith(prefix)) return limit;
+  }
+  return RATE_LIMITS.default;
+}
+
+function checkRateLimit(ip, pathname) {
+  const limit  = getLimit(pathname);
+  const bucket = pathname.split('/').slice(0, 3).join('/'); // /api/upload, /api/file, etc.
+  const key    = `${ip}:${bucket}`;
+  const now    = Date.now();
+
+  let entry = rlCache.get(key);
+  if (!entry || now > entry.resetAt) {
+    entry = { count: 0, resetAt: now + limit.windowMs };
+  }
+  entry.count++;
+  rlCache.set(key, entry);
+
+  return {
+    allowed:    entry.count <= limit.max,
+    remaining:  Math.max(0, limit.max - entry.count),
+    resetAfter: Math.ceil((entry.resetAt - now) / 1000),
+  };
+}
+
+// ── Matcher : uniquement les routes /api/* ─────────────────────────────────
+export const config = {
+  matcher: '/api/:path*',
+};
+
+export default function middleware(request) {
+  const ip       = ipAddress(request) ?? '0.0.0.0';
+  const pathname = new URL(request.url).pathname;
+
+  const { allowed, remaining, resetAfter } = checkRateLimit(ip, pathname);
+
+  if (!allowed) {
+    return new Response(
+      JSON.stringify({ error: 'Trop de requêtes — réessayez dans un instant.' }),
+      {
+        status: 429,
+        headers: {
+          'Content-Type':          'application/json',
+          'Retry-After':           String(resetAfter),
+          'X-RateLimit-Remaining': '0',
+        },
+      }
+    );
+  }
+
+  const response = next();
+  response.headers.set('X-RateLimit-Remaining', String(remaining));
+  return response;
+}

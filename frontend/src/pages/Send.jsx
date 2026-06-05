@@ -52,14 +52,14 @@ export default function Send() {
 
       setStatus('uploading');
       setProgress(0);
-      await uploadEncryptedFile(
+      const deleteToken = await uploadEncryptedFile(
         code,
         encryptedData,
         { originalName: file.name, size: file.size, salt },
         setProgress
       );
 
-      setResult({ code, passphrase: passphrase.trim() });
+      setResult({ code, passphrase: passphrase.trim(), deleteToken });
       setStatus('done');
 
     } catch (err) {
@@ -207,7 +207,7 @@ export default function Send() {
   if (status === 'done' && result) return (
     <main className="send-page">
       <BackButton />
-      <CodeDisplay code={result.code} passphrase={result.passphrase} />
+      <CodeDisplay code={result.code} passphrase={result.passphrase} deleteToken={result.deleteToken} />
       <button className="btn btn--secondary send-again" onClick={reset}>
         Envoyer un autre fichier
       </button>
