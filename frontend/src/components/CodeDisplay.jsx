@@ -1,6 +1,8 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { cancelTransfer } from '../api/client.js';
+import { generate } from 'lean-qr';
+import { toSvgDataURL } from 'lean-qr/extras/svg';
 
 /**
  * Affiche le code de transfert et le mot de passe après un upload réussi.
@@ -14,6 +16,12 @@ export default function CodeDisplay({ code, passphrase, deleteToken }) {
   const [copiedWhat,   setCopiedWhat]   = useState(null);   // null | 'code' | 'pass'
   const [cancelStatus, setCancelStatus] = useState('idle'); // idle | loading | done | error
   const [cancelError,  setCancelError]  = useState('');
+
+  const receiveUrl = `${window.location.origin}/receive/${code}`;
+  const qrDataUrl  = useMemo(() => {
+    const qr = generate(receiveUrl);
+    return toSvgDataURL(qr, { on: '#ffffff', off: 'transparent' });
+  }, [receiveUrl]);
 
   async function copy(text, what) {
     try {
@@ -69,10 +77,16 @@ export default function CodeDisplay({ code, passphrase, deleteToken }) {
         </button>
       </div>
 
+      {/* QR code — lien direct vers /receive/:code */}
+      <div className="code-display__qr">
+        <p className="code-display__field-label">Scanner depuis l'autre appareil</p>
+        <img src={qrDataUrl} alt={`QR code vers ${receiveUrl}`} className="code-display__qr-img" />
+      </div>
+
       <p className="code-display__hint">
-        Sur l'autre machine, ouvrez{' '}
+        Scannez le QR code ou ouvrez{' '}
         <Link to="/receive">la page Recevoir</Link>{' '}
-        et saisissez le code et le mot de passe ci-dessus.
+        et saisissez le code et le mot de passe.
       </p>
 
       {/* Annulation — visible seulement si deleteToken disponible */}
