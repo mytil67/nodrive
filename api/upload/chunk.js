@@ -2,15 +2,18 @@
  * POST /api/upload/chunk
  *
  * Reçoit un chunk de fichier chiffré (max ~3.5 Mo) et le stocke dans Vercel Blob.
- * Sur le dernier chunk, crée les métadonnées du transfert et retourne le deleteToken.
+ * Supporte le multi-fichier : chaque fichier a son propre préfixe (f000, f001…).
  *
  * Headers requis :
  *   x-blob-code        : code de transfert (6 chars)
- *   x-chunk-index       : index du chunk (0-based)
- *   x-chunk-total       : nombre total de chunks
- *   x-blob-name         : nom original du fichier (encodé URI)
- *   x-blob-size         : taille originale en octets
+ *   x-chunk-index       : index du chunk dans le fichier courant (0-based)
+ *   x-chunk-total       : nombre total de chunks pour le fichier courant
+ *   x-file-index        : index du fichier (0-based), défaut 0
+ *   x-file-total        : nombre total de fichiers, défaut 1
+ *
+ * Sur le dernier chunk du dernier fichier :
  *   x-blob-salt         : sel PBKDF2 128 bits hex
+ *   x-blob-files        : JSON array de { name, size } pour chaque fichier
  */
 
 import { put, list } from '@vercel/blob';
@@ -19,7 +22,7 @@ import { randomBytes } from 'crypto';
 const MAX_FILE_SIZE_MB = parseInt(process.env.MAX_FILE_SIZE_MB || '25', 10);
 const EXPIRATION_HOURS = parseInt(process.env.EXPIRATION_HOURS || '24', 10);
 const MAX_DOWNLOADS    = parseInt(process.env.MAX_DOWNLOADS    || '1',  10);
-const MAX_CHUNK_BYTES  = 4 * 1024 * 1024; // 4 Mo max par chunk
+const MAX_CHUNK_BYTES  = 4 * 1024 * 1024;
 
 const CODE_REGEX = /^[A-Z2-9]{6}$/;
 const SALT_REGEX = /^[0-9a-f]{32}$/;
@@ -48,9 +51,10 @@ export default async function handler(req, res) {
   const code       = req.headers['x-blob-code'] || '';
   const chunkIndex = parseInt(req.headers['x-chunk-index'] || '-1', 10);
   const chunkTotal = parseInt(req.headers['x-chunk-total'] || '0', 10);
+  const fileIndex  = parseInt(req.headers['x-file-index']  || '0', 10);
+  const fileTotal  = parseInt(req.headers['x-file-total']  || '1', 10);
   const salt       = req.headers['x-blob-salt'] || '';
-  const originalName = req.headers['x-blob-name'] ? decodeURIComponent(req.headers['x-blob-name']).replace(/\0/g, '') : '';
-  const sizeBytes  = parseInt(req.headers['x-blob-size'] || '0', 10);
+  const filesJson  = req.headers['x-blob-files'] || '';
 
   // Validations
   if (!CODE_REGEX.test(code)) {
@@ -59,12 +63,12 @@ export default async function handler(req, res) {
   if (chunkIndex < 0 || chunkTotal < 1 || chunkIndex >= chunkTotal) {
     return res.status(400).json({ error: 'Index de chunk invalide' });
   }
-  if (chunkTotal > Math.ceil((MAX_FILE_SIZE_MB * 1024 * 1024) / (3 * 1024 * 1024)) + 1) {
-    return res.status(400).json({ error: 'Trop de chunks' });
+  if (fileIndex < 0 || fileTotal < 1 || fileIndex >= fileTotal) {
+    return res.status(400).json({ error: 'Index de fichier invalide' });
   }
 
-  // Vérifier qu'on n'écrase pas un transfert existant (premier chunk uniquement)
-  if (chunkIndex === 0) {
+  // Vérifier qu'on n'écrase pas un transfert existant (premier chunk du premier fichier)
+  if (fileIndex === 0 && chunkIndex === 0) {
     const { blobs: existing } = await list({ prefix: `metadata/${code}.json`, limit: 1 });
     if (existing.length) {
       return res.status(409).json({ error: 'Code déjà utilisé — réessayez' });
@@ -84,54 +88,72 @@ export default async function handler(req, res) {
   const body = Buffer.concat(chunks, totalBytes);
 
   try {
-    // Stocker le chunk avec un index zero-padded pour le tri
-    const paddedIndex = String(chunkIndex).padStart(3, '0');
-    await put(`transfers/${code}/chunk-${paddedIndex}.enc`, body, {
+    // Stocker le chunk : f{fileIdx}-chunk-{chunkIdx}.enc
+    const paddedFile  = String(fileIndex).padStart(3, '0');
+    const paddedChunk = String(chunkIndex).padStart(3, '0');
+    await put(`transfers/${code}/f${paddedFile}-chunk-${paddedChunk}.enc`, body, {
       access:          'private',
       contentType:     'application/octet-stream',
       addRandomSuffix: false,
       allowOverwrite:  true,
     });
 
-    // Dernier chunk → créer les métadonnées
-    if (chunkIndex === chunkTotal - 1) {
+    // Dernier chunk du dernier fichier → créer les métadonnées
+    const isLastChunk = (chunkIndex === chunkTotal - 1) && (fileIndex === fileTotal - 1);
+
+    if (isLastChunk) {
       if (!SALT_REGEX.test(salt)) {
         return res.status(400).json({ error: 'Sel invalide' });
       }
-      if (!originalName) {
-        return res.status(400).json({ error: 'Nom de fichier manquant' });
-      }
-      if (!sizeBytes || sizeBytes > MAX_FILE_SIZE_MB * 1024 * 1024) {
-        return res.status(400).json({ error: `Fichier trop volumineux (max ${MAX_FILE_SIZE_MB} Mo)` });
-      }
 
-      // Lister tous les chunks pour obtenir leurs URLs et la taille totale
-      const { blobs: chunkBlobs } = await list({ prefix: `transfers/${code}/chunk-`, limit: 100 });
-      const sortedChunks = chunkBlobs.sort((a, b) => a.pathname.localeCompare(b.pathname));
-      const chunkUrls = sortedChunks.map(b => b.url);
-      const encryptedSize = sortedChunks.reduce((sum, b) => sum + b.size, 0);
-
-      if (chunkUrls.length !== chunkTotal) {
-        return res.status(400).json({ error: `Chunks manquants : ${chunkUrls.length}/${chunkTotal}` });
+      let fileMetas;
+      try {
+        fileMetas = JSON.parse(filesJson);
+        if (!Array.isArray(fileMetas) || fileMetas.length !== fileTotal) {
+          throw new Error('invalid');
+        }
+      } catch {
+        return res.status(400).json({ error: 'Métadonnées des fichiers invalides' });
       }
 
-      const deleteToken = randomBytes(16).toString('hex');
-      const expiresAt   = Date.now() + EXPIRATION_HOURS * 3600 * 1000;
+      // Valider la taille totale
+      const totalSize = fileMetas.reduce((s, f) => s + (f.size || 0), 0);
+      if (!totalSize || totalSize > MAX_FILE_SIZE_MB * 1024 * 1024) {
+        return res.status(400).json({ error: `Taille totale trop grande (max ${MAX_FILE_SIZE_MB} Mo)` });
+      }
+
+      // Lister tous les chunks et grouper par fichier
+      const { blobs: allChunks } = await list({ prefix: `transfers/${code}/`, limit: 1000 });
+      const sorted = allChunks.sort((a, b) => a.pathname.localeCompare(b.pathname));
+
+      const files = [];
+      for (let f = 0; f < fileTotal; f++) {
+        const prefix = `f${String(f).padStart(3, '0')}-chunk-`;
+        const fileChunks = sorted.filter(b => b.pathname.includes(prefix));
+        files.push({
+          originalName: sanitizeFilename(fileMetas[f].name || ''),
+          size:         fileMetas[f].size || 0,
+          chunkCount:   fileChunks.length,
+          chunkUrls:    fileChunks.map(b => b.url),
+        });
+      }
+
+      const encryptedSize = sorted.reduce((sum, b) => sum + b.size, 0);
+      const deleteToken   = randomBytes(16).toString('hex');
+      const expiresAt     = Date.now() + EXPIRATION_HOURS * 3600 * 1000;
 
       const metadata = {
         code,
-        originalName:   sanitizeFilename(originalName),
-        size:           sizeBytes,
         salt,
         deleteToken,
-        chunkCount:     chunkTotal,
-        chunkUrls,
+        files,
+        totalSize,
         encryptedSize,
-        createdAt:      Date.now(),
+        createdAt:     Date.now(),
         expiresAt,
-        maxDownloads:   MAX_DOWNLOADS,
-        downloadCount:  0,
-        encrypted:      true,
+        maxDownloads:  MAX_DOWNLOADS,
+        downloadCount: 0,
+        encrypted:     true,
       };
 
       await put(`metadata/${code}.json`, JSON.stringify(metadata, null, 2), {
@@ -141,11 +163,12 @@ export default async function handler(req, res) {
         allowOverwrite:  true,
       });
 
-      console.log(`[upload/chunk] Transfert ${code} complet — ${chunkTotal} chunks, ${encryptedSize} bytes`);
+      const names = files.map(f => f.originalName).join(', ');
+      console.log(`[upload/chunk] Transfert ${code} complet — ${fileTotal} fichier(s), ${encryptedSize} bytes: ${names}`);
       return res.json({ ok: true, deleteToken });
     }
 
-    return res.json({ ok: true, chunk: chunkIndex });
+    return res.json({ ok: true, chunk: chunkIndex, file: fileIndex });
 
   } catch (err) {
     console.error('[upload/chunk] Erreur:', err.message, err.stack);

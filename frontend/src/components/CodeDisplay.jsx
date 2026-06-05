@@ -5,7 +5,7 @@ import { generate } from 'lean-qr';
 import { toSvgDataURL } from 'lean-qr/extras/svg';
 import { useI18n } from '../i18n/I18nContext.jsx';
 
-export default function CodeDisplay({ code, passphrase, deleteToken }) {
+export default function CodeDisplay({ code, passphrase, deleteToken, fileCount }) {
   const { t } = useI18n();
   const [copiedWhat,   setCopiedWhat]   = useState(null);
   const [cancelStatus, setCancelStatus] = useState('idle');
@@ -51,7 +51,7 @@ export default function CodeDisplay({ code, passphrase, deleteToken }) {
   return (
     <div className="code-display">
       <div className="code-display__success-badge" aria-hidden="true">✓</div>
-      <p className="code-display__label">{t('code.sent')}</p>
+      <p className="code-display__label">{fileCount > 1 ? t('code.sent.multi') : t('code.sent')}</p>
 
       <div className="code-display__section">
         <p className="code-display__field-label">{t('code.transfer')}</p>

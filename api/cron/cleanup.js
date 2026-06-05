@@ -56,10 +56,16 @@ export default async function handler(req, res) {
             const urlsToDelete = [metaBlob.url];
             if (meta.blobUrl) urlsToDelete.push(meta.blobUrl);
             if (meta.chunkUrls) urlsToDelete.push(...meta.chunkUrls);
+            if (meta.files) {
+              for (const f of meta.files) {
+                if (f.chunkUrls) urlsToDelete.push(...f.chunkUrls);
+              }
+            }
 
             await del(urlsToDelete);
             deleted++;
-            console.log(`[cleanup] Supprimé : ${meta.code} — ${meta.originalName}`);
+            const name = meta.files ? meta.files.map(f => f.originalName).join(', ') : meta.originalName;
+            console.log(`[cleanup] Supprimé : ${meta.code} — ${name}`);
           }
         } catch (err) {
           console.error(`[cleanup] Erreur sur ${metaBlob.pathname} :`, err.message);

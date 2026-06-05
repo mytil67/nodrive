@@ -1,13 +1,11 @@
 /**
  * Couche d'accès à l'API NoDrive.
  *
- * Upload : deux modes selon la taille du fichier chiffré :
- *  - <= 3.5 Mo : XHR direct vers /api/upload (proxy serveur, simple)
- *  - > 3.5 Mo  : découpage en chunks de 3.5 Mo envoyés séquentiellement
- *                via /api/upload/chunk
+ * Upload : découpage en chunks de 3.5 Mo envoyés séquentiellement
+ * via /api/upload/chunk. Supporte le multi-fichier.
  */
 
-const CHUNK_SIZE = 3.5 * 1024 * 1024; // 3.5 Mo — sous la limite body Vercel Serverless (4.5 Mo)
+const CHUNK_SIZE = 3.5 * 1024 * 1024;
 
 export async function checkServerHealth() {
   try {
@@ -20,97 +18,60 @@ export async function checkServerHealth() {
 }
 
 /**
- * Upload un fichier chiffré — choisit automatiquement la méthode.
+ * Upload un ou plusieurs fichiers chiffrés.
  *
- * @param {string}     code          - code de transfert (6 chars)
- * @param {Uint8Array} encryptedData - données chiffrées (IV + ciphertext)
- * @param {{ originalName: string, size: number, salt: string }} fileMeta
+ * @param {string} code
+ * @param {{ encrypted: Uint8Array, name: string, size: number }[]} encryptedFiles
+ * @param {string} salt
  * @param {(pct: number) => void} onProgress
  * @returns {Promise<string|null>} deleteToken
  */
-export async function uploadEncryptedFile(code, encryptedData, fileMeta, onProgress) {
-  if (encryptedData.byteLength <= CHUNK_SIZE) {
-    return uploadViaProxy(code, encryptedData, fileMeta, onProgress);
-  }
-  return uploadViaChunks(code, encryptedData, fileMeta, onProgress);
-}
+export async function uploadEncryptedFiles(code, encryptedFiles, salt, onProgress) {
+  const fileTotal = encryptedFiles.length;
 
-/**
- * Upload direct via XHR → /api/upload (fichiers <= 3.5 Mo).
- */
-function uploadViaProxy(code, encryptedData, fileMeta, onProgress) {
-  return new Promise((resolve, reject) => {
-    const xhr = new XMLHttpRequest();
-    xhr.open('POST', '/api/upload');
-    xhr.timeout = 120_000;
-
-    xhr.setRequestHeader('Content-Type', 'application/octet-stream');
-    xhr.setRequestHeader('x-blob-code', code);
-    xhr.setRequestHeader('x-blob-name', encodeURIComponent(fileMeta.originalName));
-    xhr.setRequestHeader('x-blob-size', String(fileMeta.size));
-    xhr.setRequestHeader('x-blob-salt', fileMeta.salt);
-
-    xhr.upload.addEventListener('progress', (e) => {
-      if (e.lengthComputable) {
-        onProgress(Math.min(Math.round((e.loaded / e.total) * 100), 99));
-      }
-    });
-
-    xhr.addEventListener('load', () => {
-      if (xhr.status >= 200 && xhr.status < 300) {
-        onProgress(100);
-        try {
-          const body = JSON.parse(xhr.responseText);
-          resolve(body.deleteToken || null);
-        } catch { resolve(null); }
-      } else {
-        let msg = `Erreur HTTP ${xhr.status}`;
-        try { const b = JSON.parse(xhr.responseText); if (b.error) msg = b.error; } catch {}
-        reject(new Error(msg));
-      }
-    });
-
-    xhr.addEventListener('error',   () => reject(new Error('Erreur réseau')));
-    xhr.addEventListener('abort',   () => reject(new Error('Upload annulé')));
-    xhr.addEventListener('timeout', () => reject(new Error('Délai dépassé (2 min)')));
-
-    xhr.send(encryptedData);
+  // Calculer le nombre total de chunks pour la progression
+  let totalChunks = 0;
+  const fileChunkCounts = encryptedFiles.map(f => {
+    const count = Math.max(1, Math.ceil(f.encrypted.byteLength / CHUNK_SIZE));
+    totalChunks += count;
+    return count;
   });
-}
 
-/**
- * Upload par chunks vers /api/upload/chunk (fichiers > 3.5 Mo).
- * Découpe le fichier chiffré en morceaux de 3.5 Mo et les envoie
- * séquentiellement via XHR. Chaque chunk passe sous la limite body Vercel.
- */
-async function uploadViaChunks(code, encryptedData, fileMeta, onProgress) {
-  const totalBytes = encryptedData.byteLength;
-  const chunkTotal = Math.ceil(totalBytes / CHUNK_SIZE);
+  let chunksUploaded = 0;
+  let deleteToken = null;
 
-  for (let i = 0; i < chunkTotal; i++) {
-    const start = i * CHUNK_SIZE;
-    const end   = Math.min(start + CHUNK_SIZE, totalBytes);
-    const chunk = encryptedData.slice(start, end);
-    const isLast = (i === chunkTotal - 1);
+  for (let fi = 0; fi < fileTotal; fi++) {
+    const { encrypted, name, size } = encryptedFiles[fi];
+    const chunkTotal = fileChunkCounts[fi];
 
-    const result = await sendChunk(code, chunk, i, chunkTotal, fileMeta, isLast);
+    for (let ci = 0; ci < chunkTotal; ci++) {
+      const start = ci * CHUNK_SIZE;
+      const end   = Math.min(start + CHUNK_SIZE, encrypted.byteLength);
+      const chunk = encrypted.slice(start, end);
 
-    // Progression : répartir uniformément entre 0 et 99, puis 100 au dernier
-    const pct = isLast ? 100 : Math.min(Math.round(((i + 1) / chunkTotal) * 100), 99);
-    onProgress(pct);
+      const isLastOverall = (fi === fileTotal - 1) && (ci === chunkTotal - 1);
 
-    if (isLast) {
-      return result.deleteToken || null;
+      const result = await sendChunk(code, chunk, ci, chunkTotal, fi, fileTotal, salt,
+        isLastOverall ? encryptedFiles.map(f => ({ name: f.name, size: f.size })) : null
+      );
+
+      chunksUploaded++;
+      const pct = isLastOverall ? 100 : Math.min(Math.round((chunksUploaded / totalChunks) * 100), 99);
+      onProgress(pct);
+
+      if (isLastOverall && result.deleteToken) {
+        deleteToken = result.deleteToken;
+      }
     }
   }
 
-  return null;
+  return deleteToken;
 }
 
 /**
  * Envoie un chunk individuel via XHR.
  */
-function sendChunk(code, chunkData, index, total, fileMeta, isLast) {
+function sendChunk(code, chunkData, chunkIndex, chunkTotal, fileIndex, fileTotal, salt, fileMetas) {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open('POST', '/api/upload/chunk');
@@ -118,33 +79,42 @@ function sendChunk(code, chunkData, index, total, fileMeta, isLast) {
 
     xhr.setRequestHeader('Content-Type', 'application/octet-stream');
     xhr.setRequestHeader('x-blob-code', code);
-    xhr.setRequestHeader('x-chunk-index', String(index));
-    xhr.setRequestHeader('x-chunk-total', String(total));
+    xhr.setRequestHeader('x-chunk-index', String(chunkIndex));
+    xhr.setRequestHeader('x-chunk-total', String(chunkTotal));
+    xhr.setRequestHeader('x-file-index', String(fileIndex));
+    xhr.setRequestHeader('x-file-total', String(fileTotal));
 
-    // Le serveur n'a besoin de ces headers que sur le dernier chunk
-    if (isLast) {
-      xhr.setRequestHeader('x-blob-name', encodeURIComponent(fileMeta.originalName));
-      xhr.setRequestHeader('x-blob-size', String(fileMeta.size));
-      xhr.setRequestHeader('x-blob-salt', fileMeta.salt);
+    // Le serveur a besoin de ces headers uniquement sur le dernier chunk du dernier fichier
+    if (fileMetas) {
+      xhr.setRequestHeader('x-blob-salt', salt);
+      xhr.setRequestHeader('x-blob-files', JSON.stringify(fileMetas));
     }
 
     xhr.addEventListener('load', () => {
       if (xhr.status >= 200 && xhr.status < 300) {
-        try {
-          resolve(JSON.parse(xhr.responseText));
-        } catch { resolve({}); }
+        try { resolve(JSON.parse(xhr.responseText)); }
+        catch { resolve({}); }
       } else {
-        let msg = `Erreur HTTP ${xhr.status} (chunk ${index})`;
+        let msg = `Erreur HTTP ${xhr.status} (fichier ${fileIndex}, chunk ${chunkIndex})`;
         try { const b = JSON.parse(xhr.responseText); if (b.error) msg = b.error; } catch {}
         reject(new Error(msg));
       }
     });
 
-    xhr.addEventListener('error',   () => reject(new Error(`Erreur réseau (chunk ${index})`)));
-    xhr.addEventListener('timeout', () => reject(new Error(`Délai dépassé (chunk ${index})`)));
+    xhr.addEventListener('error',   () => reject(new Error(`Erreur réseau (fichier ${fileIndex}, chunk ${chunkIndex})`)));
+    xhr.addEventListener('timeout', () => reject(new Error(`Délai dépassé (fichier ${fileIndex}, chunk ${chunkIndex})`)));
 
     xhr.send(chunkData);
   });
+}
+
+// ── Backward-compatible single-file wrapper ──
+export async function uploadEncryptedFile(code, encryptedData, fileMeta, onProgress) {
+  return uploadEncryptedFiles(code, [{
+    encrypted: encryptedData,
+    name: fileMeta.originalName,
+    size: fileMeta.size,
+  }], fileMeta.salt, onProgress);
 }
 
 export async function getFileInfo(code) {

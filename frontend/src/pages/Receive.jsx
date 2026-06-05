@@ -16,6 +16,7 @@ export default function Receive() {
   const [fileInfo,     setFileInfo]     = useState(null);
   const [status,       setStatus]       = useState('idle');
   const [progress,     setProgress]     = useState(0);
+  const [subLabel,     setSubLabel]     = useState('');
   const [error,        setError]        = useState('');
 
   useEffect(() => {
@@ -52,89 +53,114 @@ export default function Receive() {
     try {
       setStatus('downloading');
       setProgress(0);
+      setSubLabel('');
 
-      let encryptedData;
+      const files = fileInfo.files;
+      const totalFiles = files.length;
 
-      if (fileInfo.chunkCount > 0) {
-        // ── Mode chunked : télécharger chaque chunk séparément ──
-        const parts = [];
-        let totalLoaded = 0;
+      // Calculer le nombre total de chunks pour la progression globale
+      let totalChunks = 0;
+      for (const f of files) {
+        totalChunks += Math.max(1, f.chunkCount);
+      }
+      let chunksDownloaded = 0;
 
-        for (let i = 0; i < fileInfo.chunkCount; i++) {
-          const response = await fetch(
-            `/api/file/${encodeURIComponent(code)}/download?chunk=${i}`
-          );
+      const cryptoKey = await deriveKeyFromPassphrase(pass, fileInfo.salt, 'decrypt');
+
+      for (let fi = 0; fi < totalFiles; fi++) {
+        const file = files[fi];
+        const chunkCount = Math.max(1, file.chunkCount);
+
+        if (totalFiles > 1) {
+          setSubLabel(`${t('receive.downloading.file')} ${fi + 1}/${totalFiles} — ${file.originalName}`);
+        }
+
+        // Télécharger tous les chunks de ce fichier
+        let encryptedData;
+        if (file.chunkCount > 0) {
+          const parts = [];
+          let totalLoaded = 0;
+
+          for (let ci = 0; ci < file.chunkCount; ci++) {
+            const response = await fetch(
+              `/api/file/${encodeURIComponent(code)}/download?file=${fi}&chunk=${ci}`
+            );
+            if (!response.ok) {
+              let msg = `${t('receive.error.download')} (chunk ${ci}, HTTP ${response.status})`;
+              try { const b = await response.json(); if (b.error) msg = b.error; } catch {}
+              throw new Error(msg);
+            }
+
+            const reader = response.body.getReader();
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              parts.push(value);
+              totalLoaded += value.length;
+            }
+
+            chunksDownloaded++;
+            setProgress(Math.round((chunksDownloaded / totalChunks) * 90));
+          }
+
+          encryptedData = new Uint8Array(totalLoaded);
+          let offset = 0;
+          for (const part of parts) {
+            encryptedData.set(part, offset);
+            offset += part.length;
+          }
+        } else {
+          // Ancien format fichier unique (blobUrl)
+          const response = await fetch(`/api/file/${encodeURIComponent(code)}/download?file=${fi}&chunk=0`);
           if (!response.ok) {
-            let msg = `${t('receive.error.download')} (chunk ${i}, HTTP ${response.status})`;
+            let msg = t('receive.error.download');
             try { const b = await response.json(); if (b.error) msg = b.error; } catch {}
             throw new Error(msg);
           }
 
           const reader = response.body.getReader();
-          const chunks = [];
+          const parts = [];
+          let loaded = 0;
           while (true) {
             const { done, value } = await reader.read();
             if (done) break;
-            chunks.push(value);
-            totalLoaded += value.length;
+            parts.push(value);
+            loaded += value.length;
           }
 
-          for (const c of chunks) parts.push(c);
-          setProgress(Math.round(((i + 1) / fileInfo.chunkCount) * 100));
-        }
-
-        encryptedData = new Uint8Array(totalLoaded);
-        let offset = 0;
-        for (const part of parts) {
-          encryptedData.set(part, offset);
-          offset += part.length;
-        }
-      } else {
-        // ── Mode fichier unique ──
-        const response = await fetch(`/api/file/${encodeURIComponent(code)}/download`);
-        if (!response.ok) {
-          let msg = t('receive.error.download');
-          try { const b = await response.json(); if (b.error) msg = b.error; } catch {}
-          throw new Error(msg);
-        }
-
-        const contentLength = parseInt(response.headers.get('content-length') || '0', 10);
-        const reader = response.body.getReader();
-        const chunks = [];
-        let loaded = 0;
-
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          chunks.push(value);
-          loaded += value.length;
-          if (contentLength > 0) {
-            setProgress(Math.round((loaded / contentLength) * 100));
+          encryptedData = new Uint8Array(loaded);
+          let offset = 0;
+          for (const chunk of parts) {
+            encryptedData.set(chunk, offset);
+            offset += chunk.length;
           }
+
+          chunksDownloaded++;
+          setProgress(Math.round((chunksDownloaded / totalChunks) * 90));
         }
 
-        encryptedData = new Uint8Array(loaded);
-        let offset = 0;
-        for (const chunk of chunks) {
-          encryptedData.set(chunk, offset);
-          offset += chunk.length;
+        // Déchiffrer
+        if (totalFiles > 1) {
+          setSubLabel(`${t('receive.decrypting.file')} ${fi + 1}/${totalFiles}…`);
+        } else {
+          setSubLabel(t('receive.decrypting'));
         }
+
+        const decryptedBuffer = await decryptFile(encryptedData, cryptoKey);
+
+        // Déclencher le téléchargement dans le navigateur
+        const blob = new Blob([decryptedBuffer]);
+        const url  = URL.createObjectURL(blob);
+        const a    = document.createElement('a');
+        a.href     = url;
+        a.download = file.originalName;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
       }
 
-      setStatus('decrypting');
-      const cryptoKey       = await deriveKeyFromPassphrase(pass, fileInfo.salt, 'decrypt');
-      const decryptedBuffer = await decryptFile(encryptedData, cryptoKey);
-
-      const blob = new Blob([decryptedBuffer]);
-      const url  = URL.createObjectURL(blob);
-      const a    = document.createElement('a');
-      a.href     = url;
-      a.download = fileInfo.originalName;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
-
+      setProgress(100);
       setStatus('done');
 
     } catch (err) {
@@ -149,11 +175,16 @@ export default function Receive() {
     setFileInfo(null);
     setStatus('idle');
     setProgress(0);
+    setSubLabel('');
     setError('');
   }
 
   const showInput = status === 'idle' || status === 'loading' || status === 'error';
   const timeLocale = lang === 'fr' ? 'fr-FR' : 'en-GB';
+
+  // Calculs multi-fichier
+  const totalSize = fileInfo?.files?.reduce((s, f) => s + f.size, 0) || 0;
+  const fileCount = fileInfo?.files?.length || 0;
 
   return (
     <main className="page">
@@ -161,7 +192,7 @@ export default function Receive() {
       <h1>{t('receive.title')}</h1>
 
       {showInput && (
-        <section className="code-input-area">
+        <section className="code-input-area fade-in">
           <label htmlFor="code-input" className="code-input-label">
             {t('receive.code.label')}
           </label>
@@ -191,15 +222,39 @@ export default function Receive() {
       )}
 
       {status === 'ready' && fileInfo && (
-        <section className="file-ready">
+        <section className="file-ready fade-in">
           <div className="file-preview">
-            <p className="file-name">{fileInfo.originalName}</p>
-            <p className="file-meta">
-              {formatSize(fileInfo.size)}&nbsp;·&nbsp;{t('receive.expires')}&nbsp;
-              {new Date(fileInfo.expiresAt).toLocaleTimeString(timeLocale, {
-                hour: '2-digit', minute: '2-digit',
-              })}
-            </p>
+            {fileCount === 1 ? (
+              <>
+                <p className="file-name">{fileInfo.files[0].originalName}</p>
+                <p className="file-meta">
+                  {formatSize(fileInfo.files[0].size)}&nbsp;·&nbsp;{t('receive.expires')}&nbsp;
+                  {new Date(fileInfo.expiresAt).toLocaleTimeString(timeLocale, {
+                    hour: '2-digit', minute: '2-digit',
+                  })}
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="file-name">
+                  {fileCount} {t('receive.files.count')}
+                </p>
+                <ul className="file-list file-list--receive">
+                  {fileInfo.files.map((f) => (
+                    <li key={`${f.originalName}-${f.size}`} className="file-list__item fade-in">
+                      <span className="file-list__name">{f.originalName}</span>
+                      <span className="file-list__size">{formatSize(f.size)}</span>
+                    </li>
+                  ))}
+                </ul>
+                <p className="file-meta">
+                  {formatSize(totalSize)}&nbsp;·&nbsp;{t('receive.expires')}&nbsp;
+                  {new Date(fileInfo.expiresAt).toLocaleTimeString(timeLocale, {
+                    hour: '2-digit', minute: '2-digit',
+                  })}
+                </p>
+              </>
+            )}
           </div>
 
           <div className="passphrase-field">
@@ -228,29 +283,58 @@ export default function Receive() {
       )}
 
       {status === 'downloading' && (
-        <section className="upload-progress">
-          <p>{t('receive.downloading')}</p>
-          <ProgressBar value={progress} />
-          {progress > 0 && <p className="progress-pct">{progress} %</p>}
-        </section>
-      )}
-
-      {status === 'decrypting' && (
-        <section className="upload-progress">
-          <p>{t('receive.decrypting')}</p>
-          <div className="progress-bar progress-bar--indeterminate" role="progressbar" aria-label={t('receive.decrypting.aria')}>
-            <div className="progress-bar__fill progress-bar__fill--indeterminate" />
+        <div className="send-progress-card fade-in">
+          <div className="send-progress-card__icon send-progress-card__icon--blue" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+                 strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 5v14M5 12l7 7 7-7"/>
+              <path d="M19 3H5"/>
+            </svg>
           </div>
-        </section>
+          <p className="send-progress-card__title">{t('receive.downloading')}</p>
+          <p className="send-progress-card__sub">
+            {subLabel || (progress > 0 ? `${progress} %` : t('send.connecting'))}
+          </p>
+          {progress > 0
+            ? <ProgressBar value={progress} />
+            : <div className="progress-bar progress-bar--indeterminate" role="progressbar" aria-label={t('receive.downloading')}>
+                <div className="progress-bar__fill progress-bar__fill--indeterminate" />
+              </div>
+          }
+        </div>
       )}
 
       {status === 'done' && (
-        <section className="success-box">
-          <p>{t('receive.success')}</p>
+        <div className="send-progress-card fade-in">
+          <div className="send-progress-card__icon send-progress-card__icon--green" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"
+                 strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="20 6 9 17 4 12"/>
+            </svg>
+          </div>
+          <p className="send-progress-card__title">
+            {fileCount > 1 ? t('receive.success.multi', { count: fileCount }) : t('receive.success')}
+          </p>
           <button className="btn btn--secondary" onClick={reset}>
             {t('receive.again')}
           </button>
-        </section>
+        </div>
+      )}
+
+      {status === 'error' && !showInput && (
+        <div className="send-progress-card send-progress-card--error fade-in">
+          <div className="send-progress-card__icon send-progress-card__icon--red" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+                 strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="10"/>
+              <line x1="12" y1="8" x2="12" y2="12"/>
+              <line x1="12" y1="16" x2="12.01" y2="16"/>
+            </svg>
+          </div>
+          <p className="send-progress-card__title">{t('send.error')}</p>
+          <p className="send-progress-card__sub send-progress-card__sub--error">{error}</p>
+          <button className="btn btn--secondary" onClick={reset}>{t('send.retry')}</button>
+        </div>
       )}
     </main>
   );

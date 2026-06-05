@@ -910,6 +910,134 @@ a:hover {
   border: 1px solid var(--color-border);
 }
 
+/* ---- Fade-in animation ---- */
+@keyframes fadeSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.fade-in {
+  animation: fadeSlideIn 0.4s ease-out both;
+}
+
+/* ---- File list (multi-file) ---- */
+.file-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  margin-top: 0.5rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+.file-list--receive {
+  margin-bottom: 0.5rem;
+}
+.file-list__item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.55rem 0.75rem;
+  background: var(--color-bg);
+  transition: background var(--transition);
+}
+.file-list__item + .file-list__item {
+  border-top: 1px solid var(--color-border);
+}
+.file-list__item:hover {
+  background: rgba(91, 138, 240, 0.04);
+}
+.file-list__name {
+  flex: 1;
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: var(--color-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.file-list__size {
+  font-size: 0.75rem;
+  color: var(--color-muted);
+  flex-shrink: 0;
+}
+.file-list__remove {
+  width: 1.4rem;
+  height: 1.4rem;
+  padding: 0;
+  background: none;
+  border: none;
+  color: var(--color-muted);
+  cursor: pointer;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: color var(--transition), background var(--transition);
+}
+.file-list__remove svg {
+  width: 0.85rem;
+  height: 0.85rem;
+}
+.file-list__remove:hover {
+  color: var(--color-danger);
+  background: rgba(224, 92, 92, 0.1);
+}
+
+/* ---- Progress bar shimmer ---- */
+.progress-bar__fill {
+  position: relative;
+  overflow: hidden;
+}
+.progress-bar__fill::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.2) 50%,
+    transparent 100%
+  );
+  animation: shimmer 1.8s ease-in-out infinite;
+}
+@keyframes shimmer {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+/* ---- Button transitions ---- */
+.btn {
+  transition: background var(--transition), color var(--transition),
+              border-color var(--transition), transform 0.15s ease, box-shadow var(--transition);
+}
+.btn:active:not(:disabled) {
+  transform: scale(0.97);
+}
+.action-card {
+  transition: transform var(--transition), box-shadow var(--transition),
+              border-color var(--transition), background var(--transition);
+}
+.action-card:active {
+  transform: translateY(0) scale(0.98);
+}
+
+/* ---- Success icon (green) ---- */
+.send-progress-card__icon--green {
+  background: rgba(76, 175, 130, 0.15);
+  color: var(--color-success);
+}
+
 /* ---- Footer global ---- */
 .app-footer {
   display: flex;
