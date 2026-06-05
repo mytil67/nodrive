@@ -9,6 +9,8 @@
 
 import { list } from '@vercel/blob';
 
+const BLOB_TOKEN = () => process.env.BLOB_READ_WRITE_TOKEN;
+
 /** Format attendu pour un code de transfert. */
 const CODE_REGEX = /^[A-Z2-9]{6}$/;
 
@@ -31,8 +33,10 @@ export default async function handler(req, res) {
       return res.status(404).json({ error: 'Code invalide ou expiré' });
     }
 
-    // Récupérer le contenu JSON de la métadonnée depuis Vercel Blob
-    const response = await fetch(blobs[0].url);
+    // Récupérer le contenu JSON de la métadonnée (blob privé — auth requise)
+    const response = await fetch(blobs[0].url, {
+      headers: { Authorization: `Bearer ${BLOB_TOKEN()}` },
+    });
     if (!response.ok) {
       return res.status(404).json({ error: 'Métadonnée introuvable' });
     }
@@ -49,14 +53,13 @@ export default async function handler(req, res) {
     }
 
     // Retourner uniquement les infos nécessaires au frontend
-    // blobUrl est l'URL publique du fichier CHIFFRÉ — sans la clé il est inutile
+    // blobUrl n'est pas retourné : le fichier est privé, le frontend passe par /download
     return res.json({
       originalName:  meta.originalName,
       size:          meta.size,
       expiresAt:     meta.expiresAt,
       maxDownloads:  meta.maxDownloads,
       downloadCount: meta.downloadCount,
-      blobUrl:       meta.blobUrl,
     });
   } catch (err) {
     console.error('[info] Erreur :', err.message);

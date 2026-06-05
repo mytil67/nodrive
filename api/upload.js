@@ -62,7 +62,7 @@ export default async function handler(req, res) {
     // Streaming direct : le corps de la requête (flux Node.js) est pipé vers Vercel Blob
     // sans bufferisation en mémoire — pas de limite bodyParser.
     const blob = await put(`transfers/${code}/file.enc`, req, {
-      access:          'public',
+      access:          'private',
       contentType:     'application/octet-stream',
       addRandomSuffix: false,
       allowOverwrite:  true,
@@ -70,7 +70,7 @@ export default async function handler(req, res) {
 
     console.log('[upload] Fichier stocké :', blob.pathname);
 
-    // Stockage des métadonnées publiques (sans clé de chiffrement)
+    // Stockage des métadonnées (sans clé de chiffrement)
     const meta = {
       code,
       originalName:  sanitizeFilename(originalName),
@@ -85,7 +85,7 @@ export default async function handler(req, res) {
     };
 
     await put(`metadata/${code}.json`, JSON.stringify(meta, null, 2), {
-      access:          'public',
+      access:          'private',
       contentType:     'application/json',
       addRandomSuffix: false,
       allowOverwrite:  true,

@@ -11,6 +11,8 @@
 
 import { list, del } from '@vercel/blob';
 
+const BLOB_TOKEN = () => process.env.BLOB_READ_WRITE_TOKEN;
+
 const CODE_REGEX = /^[A-Z2-9]{6}$/;
 
 export default async function handler(req, res) {
@@ -32,7 +34,9 @@ export default async function handler(req, res) {
     if (metaBlobs.length) {
       // Récupérer l'URL du fichier chiffré depuis la métadonnée
       try {
-        const response = await fetch(metaBlobs[0].url);
+        const response = await fetch(metaBlobs[0].url, {
+          headers: { Authorization: `Bearer ${BLOB_TOKEN()}` },
+        });
         if (response.ok) {
           const meta = await response.json();
           if (meta.blobUrl) urlsToDelete.push(meta.blobUrl);

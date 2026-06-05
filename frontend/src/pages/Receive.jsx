@@ -16,8 +16,8 @@ import { formatSize } from '../utils/format.js';
  *
  * Flux de sécurité :
  *  1. Lecture du code (URL) et de la clé (fragment #)
- *  2. GET /api/file/:code/info pour récupérer les infos + blobUrl
- *  3. fetch(blobUrl) pour télécharger le fichier chiffré
+ *  2. GET /api/file/:code/info pour récupérer les infos du fichier
+ *  3. GET /api/file/:code/download pour télécharger le fichier chiffré (proxy serveur)
  *  4. Déchiffrement AES-GCM dans le navigateur avec la clé du fragment
  *  5. Téléchargement du fichier déchiffré via un lien temporaire
  *  6. Suppression du transfert si usage unique (maxDownloads === 1)
@@ -81,8 +81,12 @@ export default function Receive() {
       setStatus('downloading');
       setProgress(0);
 
-      const response = await fetch(fileInfo.blobUrl);
-      if (!response.ok) throw new Error('Téléchargement du fichier chiffré échoué');
+      const response = await fetch(`/api/file/${encodeURIComponent(code)}/download`);
+      if (!response.ok) {
+        let msg = 'Téléchargement du fichier chiffré échoué';
+        try { const b = await response.json(); if (b.error) msg = b.error; } catch {}
+        throw new Error(msg);
+      }
 
       // Lecture du body par chunks pour afficher la progression
       const contentLength = parseInt(response.headers.get('content-length') || '0', 10);
