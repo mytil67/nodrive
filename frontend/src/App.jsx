@@ -2,6 +2,7 @@ import { Routes, Route } from 'react-router-dom';
 import Home from './pages/Home.jsx';
 import Send from './pages/Send.jsx';
 import Receive from './pages/Receive.jsx';
+import Footer from './components/Footer.jsx';
 
 /**
  * Composant racine de l'application.
@@ -19,6 +20,7 @@ export default function App() {
         <Route path="/receive" element={<Receive />} />
         <Route path="/receive/:code" element={<Receive />} />
       </Routes>
+      <Footer />
     </div>
   );
 }
