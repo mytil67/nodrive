@@ -12,9 +12,10 @@
 import { list, del } from '@vercel/blob';
 
 export default async function handler(req, res) {
-  // Vérification du secret Vercel Cron
+  // Vérification du secret Vercel Cron — toujours requis
   const authHeader = req.headers['authorization'];
-  if (process.env.CRON_SECRET && authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+  const secret     = process.env.CRON_SECRET;
+  if (!secret || authHeader !== `Bearer ${secret}`) {
     return res.status(401).json({ error: 'Non autorisé' });
   }
 

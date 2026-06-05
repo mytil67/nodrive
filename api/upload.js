@@ -45,6 +45,9 @@ export default async function handler(req, res) {
   const code         = req.headers['x-blob-code'] || '';
   const originalName = req.headers['x-blob-name'] ? decodeURIComponent(req.headers['x-blob-name']) : '';
   const sizeBytes    = parseInt(req.headers['x-blob-size'] || '0', 10);
+  const salt         = req.headers['x-blob-salt'] || '';
+
+  const SALT_REGEX = /^[0-9a-f]{32}$/;
 
   if (!CODE_REGEX.test(code)) {
     return res.status(400).json({ error: 'Code de transfert invalide' });
@@ -54,6 +57,9 @@ export default async function handler(req, res) {
   }
   if (!originalName) {
     return res.status(400).json({ error: 'Nom de fichier manquant' });
+  }
+  if (!SALT_REGEX.test(salt)) {
+    return res.status(400).json({ error: 'Sel cryptographique invalide' });
   }
 
   const expiresAt = Date.now() + EXPIRATION_HOURS * 3600 * 1000;
@@ -65,7 +71,7 @@ export default async function handler(req, res) {
       access:          'private',
       contentType:     'application/octet-stream',
       addRandomSuffix: false,
-      allowOverwrite:  true,
+      allowOverwrite:  false, // refuse si le code est déjà utilisé
     });
 
     console.log('[upload] Fichier stocké :', blob.pathname);
@@ -75,6 +81,7 @@ export default async function handler(req, res) {
       code,
       originalName:  sanitizeFilename(originalName),
       size:          sizeBytes,
+      salt,                    // sel PBKDF2 128 bits (hex) — public, pas secret
       blobPathname:  blob.pathname,
       blobUrl:       blob.url,
       createdAt:     Date.now(),
@@ -88,7 +95,7 @@ export default async function handler(req, res) {
       access:          'private',
       contentType:     'application/json',
       addRandomSuffix: false,
-      allowOverwrite:  true,
+      allowOverwrite:  false,
     });
 
     console.log(`[upload] Transfert ${code} enregistré — expire ${new Date(expiresAt).toISOString()}`);

@@ -40,6 +40,7 @@ export function uploadEncryptedFile(code, encryptedData, fileMeta, onProgress) {
     xhr.setRequestHeader('x-blob-code', code);
     xhr.setRequestHeader('x-blob-name', encodeURIComponent(fileMeta.originalName));
     xhr.setRequestHeader('x-blob-size', String(fileMeta.size));
+    xhr.setRequestHeader('x-blob-salt', fileMeta.salt);
 
     xhr.upload.addEventListener('progress', (e) => {
       if (e.lengthComputable) {

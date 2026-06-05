@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import BackButton from '../components/BackButton.jsx';
 import ProgressBar from '../components/ProgressBar.jsx';
-import { getFileInfo, deleteTransfer } from '../api/client.js';
+import { getFileInfo } from '../api/client.js';
 import { deriveKeyFromPassphrase, decryptFile } from '../utils/crypto.js';
 import { formatSize } from '../utils/format.js';
 
@@ -110,7 +110,8 @@ export default function Receive() {
 
       // ── Étape 2 : dérivation de la clé + déchiffrement local ────────────
       setStatus('decrypting');
-      const cryptoKey       = await deriveKeyFromPassphrase(pass, code, 'decrypt');
+      // Le sel est récupéré depuis les métadonnées (public, 128 bits)
+      const cryptoKey       = await deriveKeyFromPassphrase(pass, fileInfo.salt, 'decrypt');
       const decryptedBuffer = await decryptFile(encryptedData, cryptoKey);
 
       // ── Étape 3 : déclenchement du téléchargement navigateur ────────────
@@ -124,11 +125,7 @@ export default function Receive() {
       a.remove();
       URL.revokeObjectURL(url);
 
-      // ── Étape 4 : suppression si usage unique ───────────────────────────
-      if (fileInfo.maxDownloads === 1) {
-        deleteTransfer(code); // fire-and-forget
-      }
-
+      // La suppression est gérée côté serveur dans /download quand le quota est atteint
       setStatus('done');
 
     } catch (err) {

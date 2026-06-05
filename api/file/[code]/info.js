@@ -57,6 +57,7 @@ export default async function handler(req, res) {
     return res.json({
       originalName:  meta.originalName,
       size:          meta.size,
+      salt:          meta.salt,   // sel PBKDF2 — public, nécessaire au déchiffrement
       expiresAt:     meta.expiresAt,
       maxDownloads:  meta.maxDownloads,
       downloadCount: meta.downloadCount,

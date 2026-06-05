@@ -4,7 +4,7 @@ import DropZone from '../components/DropZone.jsx';
 import ProgressBar from '../components/ProgressBar.jsx';
 import CodeDisplay from '../components/CodeDisplay.jsx';
 import { uploadEncryptedFile, checkServerHealth } from '../api/client.js';
-import { generateTransferCode, deriveKeyFromPassphrase, encryptFile } from '../utils/crypto.js';
+import { generateTransferCode, generateSalt, deriveKeyFromPassphrase, encryptFile } from '../utils/crypto.js';
 import { formatSize } from '../utils/format.js';
 
 const MAX_FILE_SIZE_MB    = parseInt(import.meta.env.VITE_MAX_FILE_SIZE_MB || '25', 10);
@@ -30,8 +30,8 @@ export default function Send() {
       setStatus('error');
       return;
     }
-    if (!passphrase.trim()) {
-      setError('Veuillez saisir un mot de passe.');
+    if (passphrase.trim().length < 6) {
+      setError('Le mot de passe doit contenir au moins 6 caractères.');
       setStatus('error');
       return;
     }
@@ -44,7 +44,8 @@ export default function Send() {
       }
 
       const code = generateTransferCode();
-      const key  = await deriveKeyFromPassphrase(passphrase.trim(), code, 'encrypt');
+      const salt = generateSalt(); // sel 128 bits aléatoire, stocké dans les métadonnées
+      const key  = await deriveKeyFromPassphrase(passphrase.trim(), salt, 'encrypt');
 
       const fileBuffer    = await file.arrayBuffer();
       const encryptedData = await encryptFile(fileBuffer, key);
@@ -54,7 +55,7 @@ export default function Send() {
       await uploadEncryptedFile(
         code,
         encryptedData,
-        { originalName: file.name, size: file.size },
+        { originalName: file.name, size: file.size, salt },
         setProgress
       );
 
@@ -77,7 +78,7 @@ export default function Send() {
   }
 
   const fileTooLarge = file && file.size > MAX_FILE_SIZE_BYTES;
-  const canSend = file && !fileTooLarge && passphrase.trim();
+  const canSend = file && !fileTooLarge && passphrase.trim().length >= 6;
 
   /* ── Idle ── */
   if (status === 'idle') return (
@@ -135,7 +136,7 @@ export default function Send() {
             aria-label="Mot de passe de chiffrement"
           />
           <p className="send-step__hint">
-            Le destinataire devra le saisir pour déchiffrer le fichier.
+            6 caractères minimum. Le destinataire devra le saisir pour déchiffrer.
           </p>
         </div>
 

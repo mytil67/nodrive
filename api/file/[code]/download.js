@@ -2,17 +2,19 @@
  * GET /api/file/:code/download
  *
  * Proxy serveur pour télécharger le fichier chiffré stocké en blob privé.
- * Le navigateur ne peut pas accéder directement aux blobs privés Vercel :
- * cette fonction lit le blob avec le token serveur et le retransmet au client.
  *
  * Flux :
  *  1. Lecture des métadonnées (blob privé, auth token)
  *  2. Vérification expiration + quota
- *  3. Fetch du fichier chiffré (blob privé, auth token)
- *  4. Transmission binaire au navigateur
+ *  3. Incrémentation du downloadCount côté serveur (enforcement)
+ *  4. Suppression immédiate si maxDownloads atteint (ne pas dépendre du client)
+ *  5. Fetch du fichier chiffré + transmission binaire au navigateur
+ *
+ * NOTE : le fichier transmis est chiffré (AES-256-GCM).
+ * Sans la passphrase, il est inutilisable.
  */
 
-import { list } from '@vercel/blob';
+import { list, put, del } from '@vercel/blob';
 
 const CODE_REGEX = /^[A-Z2-9]{6}$/;
 
@@ -32,7 +34,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    // Lecture des métadonnées (blob privé)
+    // 1. Lecture des métadonnées
     const { blobs: metaBlobs } = await list({ prefix: `metadata/${code}.json`, limit: 1 });
     if (!metaBlobs.length) {
       return res.status(404).json({ error: 'Code invalide ou expiré' });
@@ -46,6 +48,7 @@ export default async function handler(req, res) {
     }
     const meta = await metaResponse.json();
 
+    // 2. Vérifications
     if (Date.now() > meta.expiresAt) {
       return res.status(410).json({ error: 'Ce fichier a expiré' });
     }
@@ -53,16 +56,37 @@ export default async function handler(req, res) {
       return res.status(410).json({ error: 'Nombre maximum de téléchargements atteint' });
     }
 
-    // Fetch du fichier chiffré (blob privé)
+    // 3. Fetch du fichier chiffré avant mise à jour des métadonnées
     const fileResponse = await fetch(meta.blobUrl, {
       headers: { Authorization: `Bearer ${token}` },
     });
     if (!fileResponse.ok) {
       return res.status(404).json({ error: 'Fichier introuvable' });
     }
-
-    // Transmission du binaire chiffré au navigateur
     const buffer = Buffer.from(await fileResponse.arrayBuffer());
+
+    // 4. Mise à jour du compteur + suppression si quota atteint (enforcement serveur)
+    const newCount = meta.downloadCount + 1;
+    if (meta.maxDownloads > 0 && newCount >= meta.maxDownloads) {
+      // Supprimer le fichier ET les métadonnées — ne pas attendre le client
+      await del([meta.blobUrl, metaBlobs[0].url]).catch((e) =>
+        console.error('[download] Erreur suppression après quota :', e.message)
+      );
+      console.log(`[download] Transfert ${code} supprimé après ${newCount} téléchargement(s)`);
+    } else {
+      // Mettre à jour le compteur dans les métadonnées
+      const updatedMeta = { ...meta, downloadCount: newCount };
+      await put(metaBlobs[0].pathname, JSON.stringify(updatedMeta, null, 2), {
+        access:          'private',
+        contentType:     'application/json',
+        addRandomSuffix: false,
+        allowOverwrite:  true, // mise à jour intentionnelle du compteur
+      }).catch((e) =>
+        console.error('[download] Erreur mise à jour compteur :', e.message)
+      );
+    }
+
+    // 5. Transmission du binaire chiffré
     res.setHeader('Content-Type', 'application/octet-stream');
     res.setHeader('Content-Length', buffer.length);
     res.setHeader('Content-Disposition', 'attachment; filename="file.enc"');

@@ -30,16 +30,28 @@ export function generateTransferCode() {
 // ---------------------------------------------------------------------------
 
 /**
- * Dérive une clé AES-GCM 256 bits depuis un mot de passe et un sel (code de transfert).
+ * Génère un sel cryptographique aléatoire 128 bits pour PBKDF2.
+ * Encodé en hex pour stockage dans les métadonnées (pas secret, mais unique par transfert).
+ * @returns {string} — 32 caractères hex
+ */
+export function generateSalt() {
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  return Array.from(bytes).map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+/**
+ * Dérive une clé AES-GCM 256 bits depuis un mot de passe et un sel hex 128 bits.
  * PBKDF2 / SHA-256 / 200 000 itérations.
  *
  * @param {string} passphrase - mot de passe saisi par l'utilisateur
- * @param {string} salt       - code de transfert (6 chars) utilisé comme sel
+ * @param {string} saltHex    - sel 128 bits encodé en hex (stocké dans les métadonnées)
  * @param {'encrypt'|'decrypt'} usage
  * @returns {Promise<CryptoKey>}
  */
-export async function deriveKeyFromPassphrase(passphrase, salt, usage = 'encrypt') {
+export async function deriveKeyFromPassphrase(passphrase, saltHex, usage = 'encrypt') {
   const enc = new TextEncoder();
+  // Décoder le sel hex en bytes
+  const saltBytes = new Uint8Array(saltHex.match(/.{2}/g).map((b) => parseInt(b, 16)));
   const keyMaterial = await crypto.subtle.importKey(
     'raw',
     enc.encode(passphrase),
@@ -50,7 +62,7 @@ export async function deriveKeyFromPassphrase(passphrase, salt, usage = 'encrypt
   return crypto.subtle.deriveKey(
     {
       name:       'PBKDF2',
-      salt:       enc.encode(salt),
+      salt:       saltBytes,
       iterations: 200_000,
       hash:       'SHA-256',
     },
@@ -60,6 +72,10 @@ export async function deriveKeyFromPassphrase(passphrase, salt, usage = 'encrypt
     [usage === 'decrypt' ? 'decrypt' : 'encrypt']
   );
 }
+
+// ---------------------------------------------------------------------------
+// Utilitaires base64url — conservés pour compatibilité potentielle future
+// ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
 // Chiffrement / déchiffrement
