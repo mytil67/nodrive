@@ -4,7 +4,7 @@ import DropZone from '../components/DropZone.jsx';
 import ProgressBar from '../components/ProgressBar.jsx';
 import CodeDisplay from '../components/CodeDisplay.jsx';
 import { uploadEncryptedFile, checkServerHealth } from '../api/client.js';
-import { generateTransferCode, generateEncryptionKey, encryptFile } from '../utils/crypto.js';
+import { generateTransferCode, deriveKeyFromPassphrase, encryptFile } from '../utils/crypto.js';
 import { formatSize } from '../utils/format.js';
 
 const MAX_FILE_SIZE_MB    = parseInt(import.meta.env.VITE_MAX_FILE_SIZE_MB || '25', 10);
@@ -23,11 +23,12 @@ const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
  *     Le fragment # n'est jamais envoyé au serveur
  */
 export default function Send() {
-  const [file,     setFile]     = useState(null);
-  const [progress, setProgress] = useState(0);
-  const [status,   setStatus]   = useState('idle'); // idle|encrypting|uploading|done|error
-  const [result,   setResult]   = useState(null);
-  const [error,    setError]    = useState('');
+  const [file,       setFile]       = useState(null);
+  const [passphrase, setPassphrase] = useState('');
+  const [progress,   setProgress]   = useState(0);
+  const [status,     setStatus]     = useState('idle'); // idle|encrypting|uploading|done|error
+  const [result,     setResult]     = useState(null);
+  const [error,      setError]      = useState('');
 
   async function handleSend() {
     if (!file) return;
@@ -35,6 +36,12 @@ export default function Send() {
     // Validation taille côté client (avant tout traitement)
     if (file.size > MAX_FILE_SIZE_BYTES) {
       setError(`Fichier trop volumineux (${formatSize(file.size)} / max ${MAX_FILE_SIZE_MB} Mo)`);
+      setStatus('error');
+      return;
+    }
+
+    if (!passphrase.trim()) {
+      setError('Veuillez saisir un mot de passe pour protéger le fichier.');
       setStatus('error');
       return;
     }
@@ -51,9 +58,9 @@ export default function Send() {
         );
       }
 
-      // ── Étape 1 : génération du code et de la clé ──────────────────────
-      const code                = generateTransferCode();
-      const { key, keyB64url }  = await generateEncryptionKey();
+      // ── Étape 1 : génération du code et dérivation de la clé ───────────
+      const code = generateTransferCode();
+      const key  = await deriveKeyFromPassphrase(passphrase.trim(), code, 'encrypt');
 
       // ── Étape 2 : chiffrement local du fichier ──────────────────────────
       const fileBuffer    = await file.arrayBuffer();
@@ -70,7 +77,7 @@ export default function Send() {
       );
 
       // ── Étape 4 : affichage du résultat ────────────────────────────────
-      setResult({ code, keyB64url });
+      setResult({ code, passphrase: passphrase.trim() });
       setStatus('done');
 
     } catch (err) {
@@ -81,6 +88,7 @@ export default function Send() {
 
   function reset() {
     setFile(null);
+    setPassphrase('');
     setProgress(0);
     setStatus('idle');
     setResult(null);
@@ -98,6 +106,23 @@ export default function Send() {
       {status === 'idle' && (
         <section>
           <DropZone file={file} onFile={setFile} />
+
+          <div className="passphrase-field">
+            <label htmlFor="passphrase-input">Mot de passe de chiffrement</label>
+            <input
+              id="passphrase-input"
+              type="text"
+              value={passphrase}
+              onChange={(e) => setPassphrase(e.target.value)}
+              placeholder="Ex : cheval-violet-42"
+              className="code-input"
+              autoComplete="off"
+            />
+            <p className="passphrase-hint">
+              Le destinataire devra saisir ce mot de passe pour déchiffrer le fichier.
+            </p>
+          </div>
+
           {file && (
             <div className="file-info">
               {fileTooLarge ? (
@@ -110,7 +135,7 @@ export default function Send() {
               <button
                 className="btn btn--primary"
                 onClick={handleSend}
-                disabled={fileTooLarge}
+                disabled={fileTooLarge || !passphrase.trim()}
               >
                 Chiffrer et envoyer
               </button>
@@ -148,7 +173,7 @@ export default function Send() {
       {/* ── Succès : affichage du code et du lien ── */}
       {status === 'done' && result && (
         <section>
-          <CodeDisplay code={result.code} keyFragment={result.keyB64url} />
+          <CodeDisplay code={result.code} passphrase={result.passphrase} />
           <button className="btn btn--secondary" onClick={reset}>
             Envoyer un autre fichier
           </button>

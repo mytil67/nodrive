@@ -2,40 +2,38 @@ import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import ProgressBar from '../components/ProgressBar.jsx';
 import { getFileInfo, deleteTransfer } from '../api/client.js';
-import { importEncryptionKey, decryptFile } from '../utils/crypto.js';
+import { deriveKeyFromPassphrase, decryptFile } from '../utils/crypto.js';
 import { formatSize } from '../utils/format.js';
 
 /**
  * Page de réception d'un fichier chiffré.
  *
- * Lecture de l'URL : /receive/:code#keyB64url
- *  - code       → paramètre de route
- *  - keyB64url  → fragment (#), jamais envoyé au serveur
+ * Lecture de l'URL : /receive/:code
+ *  - code → paramètre de route (optionnel, peut aussi être saisi manuellement)
  *
  * États : idle → loading → ready → downloading → decrypting → done | error
  *
  * Flux de sécurité :
- *  1. Lecture du code (URL) et de la clé (fragment #)
- *  2. GET /api/file/:code/info pour récupérer les infos du fichier
+ *  1. Saisie du code (6 chars) et du mot de passe par le destinataire
+ *  2. GET /api/file/:code/info pour vérifier que le transfert existe
  *  3. GET /api/file/:code/download pour télécharger le fichier chiffré (proxy serveur)
- *  4. Déchiffrement AES-GCM dans le navigateur avec la clé du fragment
- *  5. Téléchargement du fichier déchiffré via un lien temporaire
- *  6. Suppression du transfert si usage unique (maxDownloads === 1)
+ *  4. Dérivation de la clé AES-GCM via PBKDF2(mot_de_passe, code)
+ *  5. Déchiffrement AES-GCM dans le navigateur
+ *  6. Téléchargement du fichier déchiffré via un lien temporaire
+ *  7. Suppression du transfert si usage unique (maxDownloads === 1)
  */
 export default function Receive() {
   const { code: urlCode } = useParams();
 
   const [inputCode,    setInputCode]    = useState(urlCode || '');
-  const [keyFragment,  setKeyFragment]  = useState('');
+  const [passphrase,   setPassphrase]   = useState('');
   const [fileInfo,     setFileInfo]     = useState(null);
   const [status,       setStatus]       = useState('idle');
   const [progress,     setProgress]     = useState(0);
   const [error,        setError]        = useState('');
 
-  // Lecture initiale du fragment # et auto-lookup si code dans l'URL
+  // Auto-lookup si le code est dans l'URL
   useEffect(() => {
-    const hash = window.location.hash.slice(1); // retirer le '#'
-    if (hash) setKeyFragment(hash);
     if (urlCode) lookupCode(urlCode);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [urlCode]);
@@ -65,13 +63,10 @@ export default function Receive() {
    */
   async function handleDownload() {
     const code = inputCode.trim().toUpperCase();
-    const key  = keyFragment || window.location.hash.slice(1);
+    const pass = passphrase.trim();
 
-    if (!key) {
-      setError(
-        "Clé de déchiffrement absente. " +
-        "Utilisez le lien complet partagé par l'expéditeur (l'URL doit contenir un #)."
-      );
+    if (!pass) {
+      setError('Veuillez saisir le mot de passe fourni par l\'expéditeur.');
       setStatus('error');
       return;
     }
@@ -112,9 +107,9 @@ export default function Receive() {
         offset += chunk.length;
       }
 
-      // ── Étape 2 : déchiffrement local ───────────────────────────────────
+      // ── Étape 2 : dérivation de la clé + déchiffrement local ────────────
       setStatus('decrypting');
-      const cryptoKey       = await importEncryptionKey(key);
+      const cryptoKey       = await deriveKeyFromPassphrase(pass, code, 'decrypt');
       const decryptedBuffer = await decryptFile(encryptedData, cryptoKey);
 
       // ── Étape 3 : déclenchement du téléchargement navigateur ────────────
@@ -143,7 +138,7 @@ export default function Receive() {
 
   function reset() {
     setInputCode('');
-    setKeyFragment('');
+    setPassphrase('');
     setFileInfo(null);
     setStatus('idle');
     setProgress(0);
@@ -151,7 +146,6 @@ export default function Receive() {
   }
 
   const showInput = status === 'idle' || status === 'loading' || status === 'error';
-  const hasKey    = Boolean(keyFragment || window.location.hash.slice(1));
 
   return (
     <main className="page">
@@ -185,13 +179,6 @@ export default function Receive() {
             </button>
           </div>
 
-          {/* Avertissement si clé absente mais code présent */}
-          {!hasKey && inputCode.length === 6 && status !== 'error' && (
-            <p className="warning-text">
-              ⚠ Aucune clé dans l'URL. Assurez-vous d'utiliser le lien complet (avec #…).
-            </p>
-          )}
-
           {status === 'error' && <p className="error-text">{error}</p>}
         </section>
       )}
@@ -207,16 +194,27 @@ export default function Receive() {
                 hour: '2-digit', minute: '2-digit',
               })}
             </p>
-            {!hasKey && (
-              <p className="error-text" style={{ marginTop: '0.5rem' }}>
-                ⚠ Clé de déchiffrement absente — utilisez le lien complet
-              </p>
-            )}
           </div>
+
+          <div className="passphrase-field">
+            <label htmlFor="passphrase-recv">Mot de passe</label>
+            <input
+              id="passphrase-recv"
+              type="text"
+              value={passphrase}
+              onChange={(e) => setPassphrase(e.target.value)}
+              placeholder="Mot de passe fourni par l'expéditeur"
+              className="code-input"
+              autoComplete="off"
+              autoFocus
+              onKeyDown={(e) => e.key === 'Enter' && passphrase.trim() && handleDownload()}
+            />
+          </div>
+
           <button
             className="btn btn--primary"
             onClick={handleDownload}
-            disabled={!hasKey}
+            disabled={!passphrase.trim()}
           >
             Télécharger et déchiffrer
           </button>

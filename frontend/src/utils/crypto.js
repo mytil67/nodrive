@@ -4,9 +4,8 @@
  * Algorithme : AES-GCM 256 bits
  * Format stocké : IV (12 octets) || ciphertext
  *
- * La clé de déchiffrement n'est transmise à personne :
- * elle est incluse uniquement dans le fragment URL (#key),
- * qui n'est jamais envoyé au serveur par le navigateur.
+ * La clé de déchiffrement est dérivée du mot de passe via PBKDF2.
+ * Elle n'est jamais transmise au serveur.
  */
 
 // ---------------------------------------------------------------------------
@@ -27,40 +26,38 @@ export function generateTransferCode() {
 }
 
 // ---------------------------------------------------------------------------
-// Gestion de la clé AES-GCM
+// Dérivation de clé AES-GCM depuis un mot de passe (PBKDF2)
 // ---------------------------------------------------------------------------
 
 /**
- * Génère une clé AES-GCM 256 bits extractable.
- * @returns {Promise<{ key: CryptoKey, keyB64url: string }>}
- */
-export async function generateEncryptionKey() {
-  const key = await crypto.subtle.generateKey(
-    { name: 'AES-GCM', length: 256 },
-    true,               // extractable : nécessaire pour exporter en base64url
-    ['encrypt', 'decrypt']
-  );
-
-  const rawKey    = await crypto.subtle.exportKey('raw', key);
-  const keyB64url = arrayBufferToBase64url(rawKey);
-
-  return { key, keyB64url };
-}
-
-/**
- * Importe une clé AES-GCM depuis une chaîne base64url (fragment URL).
- * La clé importée est non-extractable pour limiter les risques d'exfiltration.
- * @param {string} keyB64url
+ * Dérive une clé AES-GCM 256 bits depuis un mot de passe et un sel (code de transfert).
+ * PBKDF2 / SHA-256 / 200 000 itérations.
+ *
+ * @param {string} passphrase - mot de passe saisi par l'utilisateur
+ * @param {string} salt       - code de transfert (6 chars) utilisé comme sel
+ * @param {'encrypt'|'decrypt'} usage
  * @returns {Promise<CryptoKey>}
  */
-export async function importEncryptionKey(keyB64url) {
-  const rawKey = base64urlToArrayBuffer(keyB64url);
-  return crypto.subtle.importKey(
+export async function deriveKeyFromPassphrase(passphrase, salt, usage = 'encrypt') {
+  const enc = new TextEncoder();
+  const keyMaterial = await crypto.subtle.importKey(
     'raw',
-    rawKey,
-    { name: 'AES-GCM' },
-    false,            // non-extractable une fois importée
-    ['decrypt']
+    enc.encode(passphrase),
+    'PBKDF2',
+    false,
+    ['deriveKey']
+  );
+  return crypto.subtle.deriveKey(
+    {
+      name:       'PBKDF2',
+      salt:       enc.encode(salt),
+      iterations: 200_000,
+      hash:       'SHA-256',
+    },
+    keyMaterial,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    [usage === 'decrypt' ? 'decrypt' : 'encrypt']
   );
 }
 
