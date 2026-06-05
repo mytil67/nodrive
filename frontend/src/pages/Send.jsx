@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import DropZone from '../components/DropZone.jsx';
 import ProgressBar from '../components/ProgressBar.jsx';
 import CodeDisplay from '../components/CodeDisplay.jsx';
-import { uploadEncryptedFile } from '../api/client.js';
+import { uploadEncryptedFile, checkServerHealth } from '../api/client.js';
 import { generateTransferCode, generateEncryptionKey, encryptFile } from '../utils/crypto.js';
 import { formatSize } from '../utils/format.js';
 
@@ -40,8 +40,18 @@ export default function Send() {
     }
 
     try {
-      // ── Étape 1 : génération du code et de la clé ──────────────────────
+      // ── Étape 0 : vérification serveur (évite de chiffrer pour rien) ────
       setStatus('encrypting');
+      const health = await checkServerHealth();
+      // Si la réponse est explicite sur l'absence du token, on arrête immédiatement
+      if (health !== null && !health.hasBlobToken) {
+        throw new Error(
+          'Le service de stockage n\'est pas configuré sur le serveur. ' +
+          'Vérifiez que le Vercel Blob Store est connecté au projet dans le Dashboard Vercel.'
+        );
+      }
+
+      // ── Étape 1 : génération du code et de la clé ──────────────────────
       const code                = generateTransferCode();
       const { key, keyB64url }  = await generateEncryptionKey();
 

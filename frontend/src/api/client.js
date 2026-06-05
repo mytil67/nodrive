@@ -10,12 +10,31 @@
 import { upload } from '@vercel/blob/client';
 
 /**
+ * Vérifie que le serveur est prêt à traiter un upload.
+ * Retourne null si la vérification elle-même échoue (réseau indisponible).
+ * @returns {Promise<{ ok: boolean, hasBlobToken: boolean, env: string } | null>}
+ */
+export async function checkServerHealth() {
+  try {
+    const res = await fetch('/api/health');
+    if (!res.ok) return null;
+    return res.json();
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Upload un fichier chiffré directement depuis le navigateur vers Vercel Blob.
  *
  * Flux :
  *  1. upload() appelle /api/upload pour obtenir un token de téléchargement
  *  2. Le navigateur envoie le fichier chiffré directement au CDN Vercel Blob
  *  3. Vercel Blob appelle le callback /api/upload qui stocke les métadonnées
+ *
+ * Sécurité : un timeout de 90 s est appliqué pour éviter qu'un blocage silencieux
+ * de @vercel/blob/client (notamment quand le serveur retourne 5xx) laisse l'UI
+ * indéfiniment à 0 %.
  *
  * @param {string}   code          - code de transfert (6 chars, généré côté client)
  * @param {Uint8Array} encryptedData - données chiffrées (IV + ciphertext)
@@ -24,15 +43,16 @@ import { upload } from '@vercel/blob/client';
  * @returns {Promise<void>}
  */
 export async function uploadEncryptedFile(code, encryptedData, fileMeta, onProgress) {
-  const expiresAt = Date.now() +
+  const TIMEOUT_MS = 90_000;
+  const expiresAt  = Date.now() +
     parseInt(import.meta.env.VITE_EXPIRATION_HOURS || '24', 10) * 3600 * 1000;
 
-  await upload(
+  const uploadPromise = upload(
     `transfers/${code}/file.enc`,
     new Blob([encryptedData], { type: 'application/octet-stream' }),
     {
-      access:           'public',
-      handleUploadUrl:  '/api/upload',
+      access:          'public',
+      handleUploadUrl: '/api/upload',
       clientPayload: JSON.stringify({
         code,
         originalName: fileMeta.originalName,
@@ -44,6 +64,23 @@ export async function uploadEncryptedFile(code, encryptedData, fileMeta, onProgr
       },
     }
   );
+
+  // Garde-fou : si upload() se bloque silencieusement (ex: serveur renvoie 5xx
+  // sans que @vercel/blob/client lève d'exception), on force une erreur après
+  // TIMEOUT_MS pour que l'UI ne reste jamais figée à 0 %.
+  let timeoutId;
+  const timeoutPromise = new Promise((_, reject) => {
+    timeoutId = setTimeout(
+      () => reject(new Error(`Upload interrompu : le serveur n'a pas répondu après ${TIMEOUT_MS / 1000} s`)),
+      TIMEOUT_MS
+    );
+  });
+
+  try {
+    await Promise.race([uploadPromise, timeoutPromise]);
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
 
 /**
