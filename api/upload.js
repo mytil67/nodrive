@@ -34,17 +34,34 @@ function sanitizeFilename(name) {
 
 /**
  * Lit et parse le body de la requête Node.js en JSON.
- * Vercel Functions ne parsent pas automatiquement le body.
+ * Gère les différents états possibles de req.body selon le runtime Vercel :
+ *  - undefined  : body non lu, on lit le stream
+ *  - null       : body vide ou échec de parsing, on lit le stream
+ *  - string     : déjà lu en chaîne, on parse
+ *  - Buffer     : déjà lu en buffer, on convertit puis parse
+ *  - object     : déjà parsé (middleware Vercel), on retourne directement
  */
 function readBody(req) {
   return new Promise((resolve, reject) => {
-    // Déjà parsé par un middleware Vercel
-    if (req.body !== undefined && typeof req.body === 'object') {
+    // Déjà parsé en objet par un middleware Vercel (et non null)
+    if (req.body !== null && req.body !== undefined && typeof req.body === 'object' && !Buffer.isBuffer(req.body)) {
       return resolve(req.body);
     }
-    let raw = '';
-    req.on('data', (chunk) => { raw += chunk.toString(); });
+    // Déjà disponible en string
+    if (typeof req.body === 'string') {
+      try { return resolve(JSON.parse(req.body)); }
+      catch { return resolve({}); }
+    }
+    // Disponible en Buffer
+    if (Buffer.isBuffer(req.body)) {
+      try { return resolve(JSON.parse(req.body.toString('utf8'))); }
+      catch { return resolve({}); }
+    }
+    // Lecture depuis le stream (cas par défaut)
+    const chunks = [];
+    req.on('data', (chunk) => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
     req.on('end', () => {
+      const raw = Buffer.concat(chunks).toString('utf8');
       try { resolve(JSON.parse(raw)); }
       catch { resolve({}); }
     });
@@ -57,7 +74,21 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Méthode non autorisée' });
   }
 
+  // Vérification précoce : sans ce token aucune opération Blob n'est possible
+  if (!process.env.BLOB_READ_WRITE_TOKEN) {
+    console.error('[upload] BLOB_READ_WRITE_TOKEN manquant. Vérifiez les variables d\'environnement Vercel (Dashboard → Storage → Blob → connecter au projet).');
+    return res.status(500).json({
+      error: 'Configuration serveur incomplète : BLOB_READ_WRITE_TOKEN absent. Consultez les logs Vercel.',
+    });
+  }
+
   const body = await readBody(req);
+
+  // Le body doit avoir un champ "type" pour être traité par handleUpload
+  if (!body || !body.type) {
+    console.error('[upload] Body invalide reçu :', JSON.stringify(body));
+    return res.status(400).json({ error: 'Corps de requête invalide' });
+  }
 
   try {
     const jsonResponse = await handleUpload({
@@ -142,7 +173,12 @@ export default async function handler(req, res) {
 
     return res.json(jsonResponse);
   } catch (err) {
-    console.error('[upload] Erreur :', err.message);
-    return res.status(400).json({ error: err.message });
+    // Logguer l'erreur complète côté serveur pour diagnostiquer
+    console.error('[upload] Erreur handleUpload :', err.message, err.stack);
+    // Retourner un message utile (sans exposer de stack interne en prod)
+    const isDev = process.env.NODE_ENV !== 'production' || process.env.VERCEL_ENV === 'development';
+    return res.status(400).json({
+      error: isDev ? err.message : 'Erreur lors de la génération du token d\'upload',
+    });
   }
 }
