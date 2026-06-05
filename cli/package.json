@@ -1,0 +1,20 @@
+{
+  "name": "nodrive-cli",
+  "version": "1.0.0",
+  "description": "CLI pour NoDrive — transfert de fichiers chiffré entre deux machines",
+  "type": "module",
+  "bin": {
+    "nodrive": "./nodrive.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": ["nodrive", "file-transfer", "encrypted", "cli", "aes-gcm"],
+  "author": "mytil67",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mytil67/nodrive",
+    "directory": "cli"
+  }
+}
