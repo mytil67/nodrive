@@ -49,6 +49,10 @@ export async function uploadEncryptedFile(code, encryptedData, fileMeta, onProgr
 
   console.log('[upload] Démarrage upload — code:', code, 'taille:', encryptedData.byteLength, 'bytes');
 
+  // onUploadProgress est intentionnellement absent :
+  // @vercel/blob/client v2 utilise fetch + ReadableStream (duplex:'half') quand un callback
+  // de progression est fourni, ce qui échoue sur le CDN Vercel Blob (connexion coupée à ~96%).
+  // Sans callback, fetch classique est utilisé — l'UI reste en mode indéterminé.
   const uploadPromise = upload(
     `transfers/${code}/file.enc`,
     new Blob([encryptedData], { type: 'application/octet-stream' }),
@@ -61,13 +65,10 @@ export async function uploadEncryptedFile(code, encryptedData, fileMeta, onProgr
         size:         fileMeta.size,
         expiresAt,
       }),
-      onUploadProgress: ({ percentage, loaded, total }) => {
-        console.log('[upload] Progression:', percentage, '%', loaded, '/', total);
-        if (percentage != null) onProgress(Math.round(percentage));
-      },
     }
   ).then((result) => {
     console.log('[upload] upload() résolu :', result);
+    onProgress(100);
     return result;
   }).catch((err) => {
     console.error('[upload] upload() rejeté :', err.name, err.message, err);
