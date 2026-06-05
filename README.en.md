@@ -2,7 +2,7 @@
 
 Temporary encrypted file transfer between two machines — no account, no install, from the browser.
 
-**[-> nodrive.vercel.app](https://nodrive.vercel.app)** · dev by [@mytil](https://github.com/mytil67)
+**[-> nodrive.cc](https://nodrive.cc)** · dev by [@mytil](https://github.com/mytil67)
 
 ---
 
