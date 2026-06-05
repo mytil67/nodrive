@@ -11,10 +11,12 @@
  * NOTE : les security headers (CSP, X-Frame-Options, etc.) sont définis
  * dans vercel.json "headers" pour s'appliquer aussi aux assets statiques.
  *
+ * Compatible Cloudflare : lit CF-Connecting-IP pour la vraie IP client
+ * quand le site est proxié par Cloudflare. Fallback sur ipAddress() Vercel.
+ *
  * Limites connues :
  *  - Le cache in-memory est par instance edge (pas distribué).
- *    Pour un rate-limiting précis à grande échelle, utiliser @vercel/kv.
- *  - En cas d'attaque distribuée, ajouter Vercel Firewall (plan Pro).
+ *    Cloudflare WAF assure un rate-limiting distribué en amont.
  */
 
 import { next, ipAddress } from '@vercel/edge';
@@ -70,8 +72,19 @@ export const config = {
   matcher: '/api/:path*',
 };
 
+/**
+ * Résout l'IP réelle du client.
+ * Derrière Cloudflare, l'IP arrive dans CF-Connecting-IP.
+ * Sinon, fallback sur l'helper Vercel Edge.
+ */
+function getClientIp(request) {
+  return request.headers.get('cf-connecting-ip')
+      || ipAddress(request)
+      || '0.0.0.0';
+}
+
 export default function middleware(request) {
-  const ip       = ipAddress(request) ?? '0.0.0.0';
+  const ip       = getClientIp(request);
   const pathname = new URL(request.url).pathname;
 
   const { allowed, remaining, resetAfter } = checkRateLimit(ip, pathname);
