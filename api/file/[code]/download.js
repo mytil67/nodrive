@@ -56,7 +56,24 @@ export default async function handler(req, res) {
       return res.status(410).json({ error: 'Nombre maximum de téléchargements atteint' });
     }
 
-    // 3. Fetch du fichier chiffré avant mise à jour des métadonnées
+    // 3. Incrémenter le compteur AVANT de servir le fichier (anti race condition)
+    const newCount = meta.downloadCount + 1;
+    const shouldDelete = meta.maxDownloads > 0 && newCount >= meta.maxDownloads;
+
+    if (shouldDelete) {
+      // Supprimer les métadonnées immédiatement — empêche toute requête concurrente
+      await del([metaBlobs[0].url]);
+    } else {
+      const updatedMeta = { ...meta, downloadCount: newCount };
+      await put(metaBlobs[0].pathname, JSON.stringify(updatedMeta, null, 2), {
+        access:          'private',
+        contentType:     'application/json',
+        addRandomSuffix: false,
+        allowOverwrite:  true,
+      });
+    }
+
+    // 4. Fetch du fichier chiffré (le compteur est déjà incrémenté)
     const fileResponse = await fetch(meta.blobUrl, {
       headers: { Authorization: `Bearer ${token}` },
     });
@@ -65,28 +82,14 @@ export default async function handler(req, res) {
     }
     const buffer = Buffer.from(await fileResponse.arrayBuffer());
 
-    // 4. Mise à jour du compteur + suppression si quota atteint (enforcement serveur)
-    const newCount = meta.downloadCount + 1;
-    if (meta.maxDownloads > 0 && newCount >= meta.maxDownloads) {
-      // Supprimer le fichier ET les métadonnées — ne pas attendre le client
-      await del([meta.blobUrl, metaBlobs[0].url]).catch((e) =>
-        console.error('[download] Erreur suppression après quota :', e.message)
-      );
-      console.log(`[download] Transfert ${code} supprimé après ${newCount} téléchargement(s)`);
-    } else {
-      // Mettre à jour le compteur dans les métadonnées
-      const updatedMeta = { ...meta, downloadCount: newCount };
-      await put(metaBlobs[0].pathname, JSON.stringify(updatedMeta, null, 2), {
-        access:          'private',
-        contentType:     'application/json',
-        addRandomSuffix: false,
-        allowOverwrite:  true, // mise à jour intentionnelle du compteur
-      }).catch((e) =>
-        console.error('[download] Erreur mise à jour compteur :', e.message)
+    // 5. Supprimer le fichier chiffré après lecture si quota atteint
+    if (shouldDelete) {
+      await del([meta.blobUrl]).catch((e) =>
+        console.error('[download] Erreur suppression fichier :', e.message)
       );
     }
 
-    // 5. Transmission du binaire chiffré
+    // 6. Transmission du binaire chiffré
     res.setHeader('Content-Type', 'application/octet-stream');
     res.setHeader('Content-Length', buffer.length);
     res.setHeader('Content-Disposition', 'attachment; filename="file.enc"');

@@ -44,7 +44,7 @@ export default async function handler(req, res) {
 
   // Lecture des métadonnées depuis les en-têtes
   const code         = req.headers['x-blob-code'] || '';
-  const originalName = req.headers['x-blob-name'] ? decodeURIComponent(req.headers['x-blob-name']) : '';
+  const originalName = req.headers['x-blob-name'] ? decodeURIComponent(req.headers['x-blob-name']).replace(/\0/g, '') : '';
   const sizeBytes    = parseInt(req.headers['x-blob-size'] || '0', 10);
   const salt         = req.headers['x-blob-salt'] || '';
 
@@ -124,6 +124,6 @@ export default async function handler(req, res) {
 
   } catch (err) {
     console.error('[upload] Erreur:', err.message);
-    return res.status(500).json({ error: `Erreur lors de l'upload : ${err.message}` });
+    return res.status(500).json({ error: "Erreur lors de l'upload" });
   }
 }

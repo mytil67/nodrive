@@ -10,14 +10,22 @@
  */
 
 import { list, del } from '@vercel/blob';
+import { timingSafeEqual } from 'crypto';
 
 const BLOB_TOKEN = () => process.env.BLOB_READ_WRITE_TOKEN;
 
+function safeAuthCheck(authHeader, secret) {
+  if (!secret || !authHeader) return false;
+  const expected = `Bearer ${secret}`;
+  if (authHeader.length !== expected.length) return false;
+  return timingSafeEqual(Buffer.from(authHeader), Buffer.from(expected));
+}
+
 export default async function handler(req, res) {
   // Vérification du secret Vercel Cron — toujours requis
-  const authHeader = req.headers['authorization'];
+  const authHeader = req.headers['authorization'] || '';
   const secret     = process.env.CRON_SECRET;
-  if (!secret || authHeader !== `Bearer ${secret}`) {
+  if (!safeAuthCheck(authHeader, secret)) {
     return res.status(401).json({ error: 'Non autorisé' });
   }
 
@@ -64,6 +72,6 @@ export default async function handler(req, res) {
     return res.json({ deleted, errors, message });
   } catch (err) {
     console.error('[cleanup] Erreur critique :', err.message);
-    return res.status(500).json({ error: err.message });
+    return res.status(500).json({ error: 'Erreur interne lors du nettoyage' });
   }
 }
