@@ -1,61 +1,95 @@
 # NoDrive
 
-Transfert de fichiers temporaire chiffré entre deux machines, sans compte, sans installation, depuis le navigateur.
+Transfert de fichiers temporaire et chiffré entre deux machines — sans compte, sans installation, depuis le navigateur.
 
-## Fonctionnement
+**[→ nodrive.vercel.app](https://nodrive.vercel.app)** · dev by [@mytil](https://github.com/mytil67)
 
-1. **Envoyer** — choisissez un fichier, il est chiffré localement (AES-GCM 256 bits) puis envoyé directement vers Vercel Blob. Un lien de téléchargement est généré, contenant la clé dans le fragment `#` de l'URL (jamais transmise au serveur).
-2. **Recevoir** — ouvrez le lien complet sur l'autre machine. Le fichier chiffré est téléchargé puis déchiffré localement dans le navigateur. Le nom et l'extension d'origine sont conservés.
+---
+
+## Principe
+
+1. **Expéditeur** — dépose un fichier, choisit un mot de passe → obtient un code à 6 caractères
+2. **Destinataire** — va sur le site, saisit le code + le mot de passe → télécharge le fichier déchiffré
+
+Aucun lien long à copier-coller. Deux informations courtes à transmettre oralement ou par message.
+
+---
 
 ## Sécurité
 
-- Chiffrement **AES-GCM 256 bits** côté navigateur (Web Crypto API)
-- La clé ne quitte jamais le navigateur (fragment `#` non envoyé aux serveurs)
-- Les fichiers Vercel Blob sont des blobs chiffrés : inutilisables sans la clé
-- Codes de transfert courts et non prédictibles (`crypto.getRandomValues`)
-- Noms de fichiers nettoyés côté serveur
-- Expiration configurable (défaut : 24 h)
-- Mode usage unique : suppression automatique après téléchargement
+| Mécanisme | Détail |
+|---|---|
+| **Chiffrement** | AES-256-GCM, effectué dans le navigateur (Web Crypto API) |
+| **Dérivation de clé** | PBKDF2 / SHA-256 / 200 000 itérations |
+| **Sel** | 128 bits aléatoires générés par transfert (stockés dans les métadonnées, pas secret) |
+| **Clé** | Jamais transmise au serveur — dérivée localement côté expéditeur et destinataire |
+| **Stockage** | Blobs privés Vercel (inaccessibles sans token serveur) |
+| **Suppression** | Automatique côté serveur après le premier téléchargement ou après expiration |
+| **Annulation** | L'expéditeur reçoit un `deleteToken` 128 bits pour supprimer son transfert |
+| **Rate limiting** | Vercel Edge Middleware — 5 uploads/min, 30 req/min sur les autres endpoints |
+| **Headers HTTP** | CSP, X-Frame-Options DENY, HSTS preload, X-Content-Type-Options, Referrer-Policy |
 
-## Architecture
+Le serveur ne voit jamais le mot de passe ni la clé de déchiffrement.
+
+---
+
+## Stack
+
+| Couche | Technologie |
+|---|---|
+| Frontend | React 18 + Vite + React Router |
+| Backend | Vercel Serverless Functions (Node.js ESM) |
+| Stockage | Vercel Blob (accès privé) |
+| Edge | Vercel Edge Middleware (`@vercel/edge`) |
+| Déploiement | Vercel |
+
+---
+
+## Structure
 
 ```
-nodrive/
-├── api/                          # Vercel Serverless Functions
-│   ├── upload.js                 # handleUpload — validation + métadonnées
-│   ├── file/[code]/
-│   │   ├── info.js               # GET — infos publiques du transfert
-│   │   └── delete.js             # POST — suppression blob + métadonnée
-│   └── cron/
-│       └── cleanup.js            # Nettoyage quotidien des fichiers expirés
-├── frontend/                     # React + Vite
+/
+├── api/
+│   ├── upload.js                 POST /api/upload
+│   ├── health.js                 GET  /api/health
+│   ├── cron/cleanup.js           GET  /api/cron/cleanup
+│   └── file/[code]/
+│       ├── info.js               GET  /api/file/:code/info
+│       ├── download.js           GET  /api/file/:code/download
+│       └── delete.js             POST /api/file/:code/delete  (deleteToken requis)
+├── frontend/
 │   └── src/
-│       ├── pages/                # Home, Send, Receive
-│       ├── components/           # DropZone, ProgressBar, CodeDisplay
-│       ├── api/client.js         # Appels API + upload @vercel/blob/client
-│       └── utils/crypto.js       # AES-GCM (Web Crypto API)
-├── vercel.json                   # Build, rewrites SPA, cron
-└── package.json                  # Dépendances des Functions
+│       ├── pages/                Home · Send · Receive
+│       ├── components/           BackButton · CodeDisplay · DropZone · Footer · ProgressBar
+│       ├── api/client.js         Couche HTTP (XHR upload, fetch info/download/cancel)
+│       └── utils/crypto.js       AES-GCM · PBKDF2 · generateSalt
+├── middleware.js                 Rate limiting (Vercel Edge)
+└── vercel.json                   Routing SPA · Security headers · Cron
 ```
 
 Stockage Vercel Blob :
-- `transfers/{CODE}/file.enc` — fichier chiffré
-- `metadata/{CODE}.json` — métadonnées (sans clé)
+- `transfers/{CODE}/file.enc` — fichier chiffré (binaire brut)
+- `metadata/{CODE}.json` — métadonnées publiques (nom, taille, sel, expiration) — sans clé ni mot de passe
 
-## Développement local
+---
+
+## Installation locale
 
 ```bash
-# 1. Installer les dépendances
+git clone https://github.com/mytil67/nodrive.git
+cd nodrive
 npm install
 cd frontend && npm install && cd ..
 
-# 2. Lier le projet Vercel et récupérer les variables d'environnement
+# Lier au projet Vercel et récupérer les variables d'environnement
 vercel link
 vercel env pull .env.local
 
-# 3. Démarrer (frontend + API sur le même port)
+# Démarrer (frontend + API sur le même port)
 vercel dev
 ```
+
+> Ne pas utiliser `npm run dev` depuis `frontend/` seul — les routes `/api` ne seraient pas disponibles.
 
 ## Déploiement
 
@@ -63,14 +97,31 @@ vercel dev
 vercel --prod
 ```
 
+Le script `prebuild` incrémente automatiquement le numéro de patch dans `frontend/package.json` à chaque build.
+
+---
+
 ## Variables d'environnement
 
 | Variable | Défaut | Description |
 |---|---|---|
-| `BLOB_READ_WRITE_TOKEN` | — | Injecté par Vercel Blob (connexion via Dashboard) |
-| `MAX_FILE_SIZE_MB` | `25` | Taille maximale par fichier (Mo) |
-| `EXPIRATION_HOURS` | `24` | Durée de vie des transferts |
-| `MAX_DOWNLOADS` | `1` | Nombre de téléchargements autorisés |
-| `CRON_SECRET` | — | Secret pour sécuriser le endpoint `/api/cron/cleanup` |
-| `VITE_MAX_FILE_SIZE_MB` | `25` | Idem, exposé au frontend |
-| `VITE_EXPIRATION_HOURS` | `24` | Idem, exposé au frontend |
+| `BLOB_READ_WRITE_TOKEN` | — | Injecté automatiquement par Vercel Blob (connexion via Dashboard) |
+| `CRON_SECRET` | — | Secret pour sécuriser `/api/cron/cleanup` (`openssl rand -hex 32`) |
+| `MAX_FILE_SIZE_MB` | `4` | Taille maximale par fichier (Mo) |
+| `EXPIRATION_HOURS` | `24` | Durée de vie des transferts (heures) |
+| `MAX_DOWNLOADS` | `1` | Nombre de téléchargements autorisés par transfert |
+| `VITE_MAX_FILE_SIZE_MB` | `25` | Idem, exposé au frontend pour validation côté client |
+
+---
+
+## Limitations
+
+- **Taille max** : ~4 Mo par défaut (limite infrastructure Vercel Serverless). Configurable via `MAX_FILE_SIZE_MB`.
+- **Rate limiting** : compteur in-memory par instance edge (best-effort, pas distribué). Pour un rate-limiting précis, connecter un store `@vercel/kv`.
+- **Usage unique** : `MAX_DOWNLOADS=1` par défaut. Modifiable si nécessaire.
+
+---
+
+## Licence
+
+MIT
