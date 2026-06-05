@@ -55,6 +55,7 @@ export default async function handler(req, res) {
           if (now > meta.expiresAt) {
             const urlsToDelete = [metaBlob.url];
             if (meta.blobUrl) urlsToDelete.push(meta.blobUrl);
+            if (meta.chunkUrls) urlsToDelete.push(...meta.chunkUrls);
 
             await del(urlsToDelete);
             deleted++;

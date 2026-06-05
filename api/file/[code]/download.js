@@ -64,40 +64,72 @@ export default async function handler(req, res) {
       });
     }
 
-    // 4. Fetch du fichier chiffré et stream vers le client
-    const fileResponse = await fetch(meta.blobUrl, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    if (!fileResponse.ok) {
-      return res.status(404).json({ error: 'Fichier introuvable' });
-    }
-
-    const contentLength = fileResponse.headers.get('content-length');
-
+    // 4. Stream le fichier chiffré vers le client
     res.setHeader('Content-Type', 'application/octet-stream');
-    if (contentLength) res.setHeader('Content-Length', contentLength);
     res.setHeader('Content-Disposition', 'attachment; filename="file.enc"');
     res.setHeader('Cache-Control', 'no-store');
 
-    // Stream par chunks — évite de tout bufferiser en mémoire
-    const reader = fileResponse.body.getReader();
-    try {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        res.write(Buffer.from(value));
+    if (meta.chunkUrls && meta.chunkUrls.length > 0) {
+      // ── Mode chunked : stream chaque chunk séquentiellement ──
+      if (meta.encryptedSize) {
+        res.setHeader('Content-Length', String(meta.encryptedSize));
+      }
+
+      for (const chunkUrl of meta.chunkUrls) {
+        const chunkResponse = await fetch(chunkUrl, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!chunkResponse.ok) {
+          console.error(`[download] Chunk introuvable : ${chunkUrl}`);
+          if (!res.writableEnded) res.end();
+          return;
+        }
+        const reader = chunkResponse.body.getReader();
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          res.write(Buffer.from(value));
+        }
       }
       res.end();
-    } catch (streamErr) {
-      console.error('[download] Erreur stream :', streamErr.message);
-      if (!res.writableEnded) res.end();
-    }
 
-    // 5. Supprimer le fichier chiffré après envoi si quota atteint
-    if (shouldDelete) {
-      await del([meta.blobUrl]).catch((e) =>
-        console.error('[download] Erreur suppression fichier :', e.message)
-      );
+      // Supprimer tous les chunks si quota atteint
+      if (shouldDelete) {
+        await del(meta.chunkUrls).catch((e) =>
+          console.error('[download] Erreur suppression chunks :', e.message)
+        );
+      }
+    } else {
+      // ── Mode fichier unique (ancien format / petits fichiers) ──
+      const fileResponse = await fetch(meta.blobUrl, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!fileResponse.ok) {
+        return res.status(404).json({ error: 'Fichier introuvable' });
+      }
+
+      const contentLength = fileResponse.headers.get('content-length');
+      if (contentLength) res.setHeader('Content-Length', contentLength);
+
+      const reader = fileResponse.body.getReader();
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          res.write(Buffer.from(value));
+        }
+        res.end();
+      } catch (streamErr) {
+        console.error('[download] Erreur stream :', streamErr.message);
+        if (!res.writableEnded) res.end();
+      }
+
+      // Supprimer le fichier après envoi si quota atteint
+      if (shouldDelete) {
+        await del([meta.blobUrl]).catch((e) =>
+          console.error('[download] Erreur suppression fichier :', e.message)
+        );
+      }
     }
 
   } catch (err) {

@@ -2,14 +2,12 @@
  * Couche d'accès à l'API NoDrive.
  *
  * Upload : deux modes selon la taille du fichier chiffré :
- *  - <= 4 Mo : XHR direct vers /api/upload (proxy serveur, simple)
- *  - > 4 Mo  : @vercel/blob/client upload direct vers Blob Storage
- *              + /api/upload/complete pour les métadonnées
+ *  - <= 3.5 Mo : XHR direct vers /api/upload (proxy serveur, simple)
+ *  - > 3.5 Mo  : découpage en chunks de 3.5 Mo envoyés séquentiellement
+ *                via /api/upload/chunk
  */
 
-import { upload } from '@vercel/blob/client';
-
-const DIRECT_UPLOAD_LIMIT = 4 * 1024 * 1024; // 4 Mo — limite body Vercel Serverless
+const CHUNK_SIZE = 3.5 * 1024 * 1024; // 3.5 Mo — sous la limite body Vercel Serverless (4.5 Mo)
 
 export async function checkServerHealth() {
   try {
@@ -31,14 +29,14 @@ export async function checkServerHealth() {
  * @returns {Promise<string|null>} deleteToken
  */
 export async function uploadEncryptedFile(code, encryptedData, fileMeta, onProgress) {
-  if (encryptedData.byteLength <= DIRECT_UPLOAD_LIMIT) {
+  if (encryptedData.byteLength <= CHUNK_SIZE) {
     return uploadViaProxy(code, encryptedData, fileMeta, onProgress);
   }
-  return uploadViaClient(code, encryptedData, fileMeta, onProgress);
+  return uploadViaChunks(code, encryptedData, fileMeta, onProgress);
 }
 
 /**
- * Upload direct via XHR → /api/upload (fichiers <= 4 Mo).
+ * Upload direct via XHR → /api/upload (fichiers <= 3.5 Mo).
  */
 function uploadViaProxy(code, encryptedData, fileMeta, onProgress) {
   return new Promise((resolve, reject) => {
@@ -81,51 +79,72 @@ function uploadViaProxy(code, encryptedData, fileMeta, onProgress) {
 }
 
 /**
- * Upload direct vers Vercel Blob via @vercel/blob/client (fichiers > 4 Mo).
- * Le fichier va directement du navigateur au Blob Storage.
- * Les métadonnées sont créées ensuite via /api/upload/complete.
+ * Upload par chunks vers /api/upload/chunk (fichiers > 3.5 Mo).
+ * Découpe le fichier chiffré en morceaux de 3.5 Mo et les envoie
+ * séquentiellement via XHR. Chaque chunk passe sous la limite body Vercel.
  */
-async function uploadViaClient(code, encryptedData, fileMeta, onProgress) {
-  // Convertir en Blob — le SDK @vercel/blob/client le gère mieux que Uint8Array brut
-  const file = new Blob([encryptedData], { type: 'application/octet-stream' });
+async function uploadViaChunks(code, encryptedData, fileMeta, onProgress) {
+  const totalBytes = encryptedData.byteLength;
+  const chunkTotal = Math.ceil(totalBytes / CHUNK_SIZE);
 
-  const blob = await upload(`transfers/${code}/file.enc`, file, {
-    access: 'private',
-    handleUploadUrl: '/api/upload/authorize',
-    contentType: 'application/octet-stream',
-    clientPayload: JSON.stringify({
-      code,
-      originalName: fileMeta.originalName,
-      size: fileMeta.size,
-      salt: fileMeta.salt,
-    }),
-    multipart: encryptedData.byteLength > 8 * 1024 * 1024, // multipart au-delà de 8 Mo
-    onUploadProgress: ({ percentage }) => {
-      onProgress(Math.min(Math.round(percentage), 95));
-    },
+  for (let i = 0; i < chunkTotal; i++) {
+    const start = i * CHUNK_SIZE;
+    const end   = Math.min(start + CHUNK_SIZE, totalBytes);
+    const chunk = encryptedData.slice(start, end);
+    const isLast = (i === chunkTotal - 1);
+
+    const result = await sendChunk(code, chunk, i, chunkTotal, fileMeta, isLast);
+
+    // Progression : répartir uniformément entre 0 et 99, puis 100 au dernier
+    const pct = isLast ? 100 : Math.min(Math.round(((i + 1) / chunkTotal) * 100), 99);
+    onProgress(pct);
+
+    if (isLast) {
+      return result.deleteToken || null;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Envoie un chunk individuel via XHR.
+ */
+function sendChunk(code, chunkData, index, total, fileMeta, isLast) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', '/api/upload/chunk');
+    xhr.timeout = 60_000;
+
+    xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+    xhr.setRequestHeader('x-blob-code', code);
+    xhr.setRequestHeader('x-chunk-index', String(index));
+    xhr.setRequestHeader('x-chunk-total', String(total));
+
+    // Le serveur n'a besoin de ces headers que sur le dernier chunk
+    if (isLast) {
+      xhr.setRequestHeader('x-blob-name', encodeURIComponent(fileMeta.originalName));
+      xhr.setRequestHeader('x-blob-size', String(fileMeta.size));
+      xhr.setRequestHeader('x-blob-salt', fileMeta.salt);
+    }
+
+    xhr.addEventListener('load', () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          resolve(JSON.parse(xhr.responseText));
+        } catch { resolve({}); }
+      } else {
+        let msg = `Erreur HTTP ${xhr.status} (chunk ${index})`;
+        try { const b = JSON.parse(xhr.responseText); if (b.error) msg = b.error; } catch {}
+        reject(new Error(msg));
+      }
+    });
+
+    xhr.addEventListener('error',   () => reject(new Error(`Erreur réseau (chunk ${index})`)));
+    xhr.addEventListener('timeout', () => reject(new Error(`Délai dépassé (chunk ${index})`)));
+
+    xhr.send(chunkData);
   });
-
-  onProgress(98);
-
-  // Enregistrer les métadonnées et récupérer le deleteToken
-  const res = await fetch('/api/upload/complete', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      code,
-      originalName: fileMeta.originalName,
-      size: fileMeta.size,
-      salt: fileMeta.salt,
-      blobUrl: blob.url,
-      blobPathname: blob.pathname,
-    }),
-  });
-
-  const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(body.error || 'Erreur enregistrement métadonnées');
-
-  onProgress(100);
-  return body.deleteToken || null;
 }
 
 export async function getFileInfo(code) {

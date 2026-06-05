@@ -54,6 +54,7 @@ export default async function handler(req, res) {
 
     const urlsToDelete = [metaBlobs[0].url];
     if (meta.blobUrl) urlsToDelete.push(meta.blobUrl);
+    if (meta.chunkUrls) urlsToDelete.push(...meta.chunkUrls);
 
     await del(urlsToDelete);
     console.log(`[delete] Transfert ${code} supprimé par l'expéditeur`);
