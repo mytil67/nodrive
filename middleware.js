@@ -23,7 +23,7 @@ import { next, ipAddress } from '@vercel/edge';
 
 // ── Configuration des limites ──────────────────────────────────────────────
 const RATE_LIMITS = {
-  '/api/upload':              { max: 5,  windowMs: 60_000 }, // 5 uploads/min
+  '/api/upload':              { max: 5,  windowMs: 60_000 }, // 5 uploads/min (proxy + client)
   '/api/file':                { max: 30, windowMs: 60_000 }, // 30 download+info/min
   default:                    { max: 60, windowMs: 60_000 }, // 60 req/min autres
 };

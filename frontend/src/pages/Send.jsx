@@ -8,7 +8,7 @@ import { generateTransferCode, generateSalt, deriveKeyFromPassphrase, encryptFil
 import { formatSize } from '../utils/format.js';
 import { useI18n } from '../i18n/I18nContext.jsx';
 
-const MAX_FILE_SIZE_MB    = parseInt(import.meta.env.VITE_MAX_FILE_SIZE_MB || '4', 10);
+const MAX_FILE_SIZE_MB    = parseInt(import.meta.env.VITE_MAX_FILE_SIZE_MB || '25', 10);
 const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
 
 export default function Send() {

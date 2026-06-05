@@ -50,7 +50,10 @@ The server never sees the password or the decryption key.
 ```
 /
 ├── api/
-│   ├── upload.js                 POST /api/upload
+│   ├── upload.js                 POST /api/upload (files ≤ 4 MB)
+│   ├── upload/
+│   │   ├── authorize.js          POST /api/upload/authorize (Blob client token)
+│   │   └── complete.js           POST /api/upload/complete (metadata post-upload)
 │   ├── health.js                 GET  /api/health
 │   ├── cron/cleanup.js           GET  /api/cron/cleanup
 │   └── file/[code]/
@@ -107,16 +110,16 @@ The `prebuild` script automatically increments the patch version in `frontend/pa
 |---|---|---|
 | `BLOB_READ_WRITE_TOKEN` | — | Automatically injected by Vercel Blob (connect via Dashboard) |
 | `CRON_SECRET` | — | Secret to secure `/api/cron/cleanup` (`openssl rand -hex 32`) |
-| `MAX_FILE_SIZE_MB` | `4` | Maximum file size (MB) |
+| `MAX_FILE_SIZE_MB` | `25` | Maximum file size (MB) |
 | `EXPIRATION_HOURS` | `24` | Transfer lifetime (hours) |
 | `MAX_DOWNLOADS` | `1` | Allowed downloads per transfer |
-| `VITE_MAX_FILE_SIZE_MB` | `4` | Same, exposed to frontend for client-side validation |
+| `VITE_MAX_FILE_SIZE_MB` | `25` | Same, exposed to frontend for client-side validation |
 
 ---
 
 ## Limitations
 
-- **Max size**: ~4 MB by default (Vercel Serverless infrastructure limit). Configurable via `MAX_FILE_SIZE_MB`.
+- **Max size**: 25 MB by default. Files > 4 MB are uploaded directly to Vercel Blob (client upload). Configurable via `MAX_FILE_SIZE_MB`.
 - **Rate limiting**: in-memory counter per edge instance (best-effort, not distributed). For precise rate-limiting, connect a `@vercel/kv` store.
 - **Single use**: `MAX_DOWNLOADS=1` by default. Adjustable if needed.
 

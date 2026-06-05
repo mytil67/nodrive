@@ -1,11 +1,15 @@
 /**
  * Couche d'accès à l'API NoDrive.
  *
- * Upload : XHR natif navigateur → /api/upload (proxy serveur → Vercel Blob).
- *          @vercel/blob/client est volontairement absent côté frontend :
- *          en v2.x il envoie le PUT vers vercel.com/api/blob (API management,
- *          sans CORS) au lieu du CDN blob.vercel-storage.com.
+ * Upload : deux modes selon la taille du fichier chiffré :
+ *  - <= 4 Mo : XHR direct vers /api/upload (proxy serveur, simple)
+ *  - > 4 Mo  : @vercel/blob/client upload direct vers Blob Storage
+ *              + /api/upload/complete pour les métadonnées
  */
+
+import { upload } from '@vercel/blob/client';
+
+const DIRECT_UPLOAD_LIMIT = 4 * 1024 * 1024; // 4 Mo — limite body Vercel Serverless
 
 export async function checkServerHealth() {
   try {
@@ -18,23 +22,29 @@ export async function checkServerHealth() {
 }
 
 /**
- * Upload un fichier chiffré vers /api/upload via XHR.
- *
- * Le corps de la requête est le binaire brut (Uint8Array).
- * Les métadonnées sont transmises dans des en-têtes personnalisés.
- * La progression est fournie par XHR.upload.onprogress — pas de streaming
- * ReadableStream, pas de CORS, pas de dépendance @vercel/blob/client.
+ * Upload un fichier chiffré — choisit automatiquement la méthode.
  *
  * @param {string}     code          - code de transfert (6 chars)
  * @param {Uint8Array} encryptedData - données chiffrées (IV + ciphertext)
- * @param {{ originalName: string, size: number }} fileMeta
+ * @param {{ originalName: string, size: number, salt: string }} fileMeta
  * @param {(pct: number) => void} onProgress
+ * @returns {Promise<string|null>} deleteToken
  */
-export function uploadEncryptedFile(code, encryptedData, fileMeta, onProgress) {
+export async function uploadEncryptedFile(code, encryptedData, fileMeta, onProgress) {
+  if (encryptedData.byteLength <= DIRECT_UPLOAD_LIMIT) {
+    return uploadViaProxy(code, encryptedData, fileMeta, onProgress);
+  }
+  return uploadViaClient(code, encryptedData, fileMeta, onProgress);
+}
+
+/**
+ * Upload direct via XHR → /api/upload (fichiers <= 4 Mo).
+ */
+function uploadViaProxy(code, encryptedData, fileMeta, onProgress) {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open('POST', '/api/upload');
-    xhr.timeout = 120_000; // 2 min
+    xhr.timeout = 120_000;
 
     xhr.setRequestHeader('Content-Type', 'application/octet-stream');
     xhr.setRequestHeader('x-blob-code', code);
@@ -44,8 +54,7 @@ export function uploadEncryptedFile(code, encryptedData, fileMeta, onProgress) {
 
     xhr.upload.addEventListener('progress', (e) => {
       if (e.lengthComputable) {
-        const pct = Math.round((e.loaded / e.total) * 100);
-        onProgress(Math.min(pct, 99)); // 99% max — 100% à la réponse serveur
+        onProgress(Math.min(Math.round((e.loaded / e.total) * 100), 99));
       }
     });
 
@@ -55,9 +64,7 @@ export function uploadEncryptedFile(code, encryptedData, fileMeta, onProgress) {
         try {
           const body = JSON.parse(xhr.responseText);
           resolve(body.deleteToken || null);
-        } catch {
-          resolve(null);
-        }
+        } catch { resolve(null); }
       } else {
         let msg = `Erreur HTTP ${xhr.status}`;
         try { const b = JSON.parse(xhr.responseText); if (b.error) msg = b.error; } catch {}
@@ -65,13 +72,56 @@ export function uploadEncryptedFile(code, encryptedData, fileMeta, onProgress) {
       }
     });
 
-    xhr.addEventListener('error',   () => reject(new Error('Erreur réseau lors de l\'upload')));
+    xhr.addEventListener('error',   () => reject(new Error('Erreur réseau')));
     xhr.addEventListener('abort',   () => reject(new Error('Upload annulé')));
-    xhr.addEventListener('timeout', () => reject(new Error('Upload interrompu : délai de 2 min dépassé')));
+    xhr.addEventListener('timeout', () => reject(new Error('Délai dépassé (2 min)')));
 
-    console.log('[upload] Envoi — code:', code, 'taille:', encryptedData.byteLength, 'bytes');
     xhr.send(encryptedData);
   });
+}
+
+/**
+ * Upload direct vers Vercel Blob via @vercel/blob/client (fichiers > 4 Mo).
+ * Le fichier va directement du navigateur au Blob Storage.
+ * Les métadonnées sont créées ensuite via /api/upload/complete.
+ */
+async function uploadViaClient(code, encryptedData, fileMeta, onProgress) {
+  const blob = await upload(`transfers/${code}/file.enc`, encryptedData, {
+    access: 'private',
+    handleUploadUrl: '/api/upload/authorize',
+    contentType: 'application/octet-stream',
+    clientPayload: JSON.stringify({
+      code,
+      originalName: fileMeta.originalName,
+      size: fileMeta.size,
+      salt: fileMeta.salt,
+    }),
+    onUploadProgress: ({ percentage }) => {
+      onProgress(Math.min(Math.round(percentage), 95));
+    },
+  });
+
+  onProgress(98);
+
+  // Enregistrer les métadonnées et récupérer le deleteToken
+  const res = await fetch('/api/upload/complete', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      code,
+      originalName: fileMeta.originalName,
+      size: fileMeta.size,
+      salt: fileMeta.salt,
+      blobUrl: blob.url,
+      blobPathname: blob.pathname,
+    }),
+  });
+
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || 'Erreur enregistrement métadonnées');
+
+  onProgress(100);
+  return body.deleteToken || null;
 }
 
 export async function getFileInfo(code) {

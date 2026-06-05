@@ -19,7 +19,7 @@
 import { put } from '@vercel/blob';
 import { randomBytes } from 'crypto';
 
-const MAX_FILE_SIZE_MB = parseInt(process.env.MAX_FILE_SIZE_MB || '4', 10);
+const MAX_FILE_SIZE_MB = parseInt(process.env.MAX_FILE_SIZE_MB || '25', 10);
 const EXPIRATION_HOURS = parseInt(process.env.EXPIRATION_HOURS || '24', 10);
 const MAX_DOWNLOADS    = parseInt(process.env.MAX_DOWNLOADS    || '1',  10);
 
