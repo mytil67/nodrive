@@ -3,18 +3,12 @@ import { Link } from 'react-router-dom';
 import { cancelTransfer } from '../api/client.js';
 import { generate } from 'lean-qr';
 import { toSvgDataURL } from 'lean-qr/extras/svg';
+import { useI18n } from '../i18n/I18nContext.jsx';
 
-/**
- * Affiche le code de transfert et le mot de passe après un upload réussi.
- * Permet également à l'expéditeur d'annuler le transfert via le deleteToken.
- *
- * @param {string}      code        - code court (ex : "AB3K7P")
- * @param {string}      passphrase  - mot de passe saisi par l'expéditeur
- * @param {string|null} deleteToken - token 128 bits pour annuler le transfert
- */
 export default function CodeDisplay({ code, passphrase, deleteToken }) {
-  const [copiedWhat,   setCopiedWhat]   = useState(null);   // null | 'code' | 'pass'
-  const [cancelStatus, setCancelStatus] = useState('idle'); // idle | loading | done | error
+  const { t } = useI18n();
+  const [copiedWhat,   setCopiedWhat]   = useState(null);
+  const [cancelStatus, setCancelStatus] = useState('idle');
   const [cancelError,  setCancelError]  = useState('');
 
   const receiveUrl = `${window.location.origin}/receive/${code}`;
@@ -33,7 +27,7 @@ export default function CodeDisplay({ code, passphrase, deleteToken }) {
 
   async function handleCancel() {
     if (!deleteToken || cancelStatus === 'loading') return;
-    if (!window.confirm('Annuler ce transfert ? Le fichier sera supprimé définitivement.')) return;
+    if (!window.confirm(t('code.cancel.confirm'))) return;
     setCancelStatus('loading');
     try {
       await cancelTransfer(code, deleteToken);
@@ -48,8 +42,8 @@ export default function CodeDisplay({ code, passphrase, deleteToken }) {
     return (
       <div className="code-display">
         <div className="code-display__success-badge code-display__success-badge--grey" aria-hidden="true">✕</div>
-        <p className="code-display__label">Transfert annulé</p>
-        <p className="code-display__hint">Le fichier a été supprimé du serveur.</p>
+        <p className="code-display__label">{t('code.cancelled')}</p>
+        <p className="code-display__hint">{t('code.cancelled.hint')}</p>
       </div>
     );
   }
@@ -57,39 +51,35 @@ export default function CodeDisplay({ code, passphrase, deleteToken }) {
   return (
     <div className="code-display">
       <div className="code-display__success-badge" aria-hidden="true">✓</div>
-      <p className="code-display__label">Fichier chiffré et envoyé</p>
+      <p className="code-display__label">{t('code.sent')}</p>
 
-      {/* Code de transfert */}
       <div className="code-display__section">
-        <p className="code-display__field-label">Code de transfert</p>
+        <p className="code-display__field-label">{t('code.transfer')}</p>
         <div className="code-display__code">{code}</div>
         <button className="btn btn--outline btn--sm" onClick={() => copy(code, 'code')}>
-          {copiedWhat === 'code' ? '✓ Copié' : 'Copier le code'}
+          {copiedWhat === 'code' ? t('code.copied') : t('code.copy.code')}
         </button>
       </div>
 
-      {/* Mot de passe */}
       <div className="code-display__section">
-        <p className="code-display__field-label">Mot de passe</p>
+        <p className="code-display__field-label">{t('code.password')}</p>
         <div className="code-display__passphrase">{passphrase}</div>
         <button className="btn btn--outline btn--sm" onClick={() => copy(passphrase, 'pass')}>
-          {copiedWhat === 'pass' ? '✓ Copié' : 'Copier le mot de passe'}
+          {copiedWhat === 'pass' ? t('code.copied') : t('code.copy.password')}
         </button>
       </div>
 
-      {/* QR code — lien direct vers /receive/:code */}
       <div className="code-display__qr">
-        <p className="code-display__field-label">Scanner depuis l'autre appareil</p>
-        <img src={qrDataUrl} alt={`QR code vers ${receiveUrl}`} className="code-display__qr-img" />
+        <p className="code-display__field-label">{t('code.qr.label')}</p>
+        <img src={qrDataUrl} alt={`QR code — ${receiveUrl}`} className="code-display__qr-img" />
       </div>
 
       <p className="code-display__hint">
-        Scannez le QR code ou ouvrez{' '}
-        <Link to="/receive">la page Recevoir</Link>{' '}
-        et saisissez le code et le mot de passe.
+        {t('code.hint')}{' '}
+        <Link to="/receive">{t('code.hint.link')}</Link>{' '}
+        {t('code.hint.end')}
       </p>
 
-      {/* Annulation — visible seulement si deleteToken disponible */}
       {deleteToken && (
         <div className="code-display__cancel">
           {cancelStatus === 'error' && (
@@ -100,7 +90,7 @@ export default function CodeDisplay({ code, passphrase, deleteToken }) {
             onClick={handleCancel}
             disabled={cancelStatus === 'loading'}
           >
-            {cancelStatus === 'loading' ? 'Annulation…' : 'Annuler ce transfert'}
+            {cancelStatus === 'loading' ? t('code.cancelling') : t('code.cancel')}
           </button>
         </div>
       )}

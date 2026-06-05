@@ -1,0 +1,181 @@
+export const translations = {
+  fr: {
+    // Home
+    'home.eyebrow': 'Transfert de fichiers',
+    'home.subtitle': "Envoyez un fichier d'une machine à une autre.\nUn code. Un mot de passe. C'est tout.",
+    'home.send': 'Envoyer un fichier',
+    'home.send.desc': 'Chiffrer et partager en quelques secondes',
+    'home.receive': 'Recevoir un fichier',
+    'home.receive.desc': 'Entrez le code et le mot de passe',
+    'home.feature.aes': 'Chiffré AES-256',
+    'home.feature.aes.desc': 'Le fichier est chiffré dans votre navigateur avant envoi',
+    'home.feature.expiry': 'Supprimé après 24 h',
+    'home.feature.expiry.desc': 'Aucune donnée conservée au-delà de la durée de vie du transfert',
+    'home.feature.noaccount': 'Sans compte',
+    'home.feature.noaccount.desc': 'Aucune inscription, aucune installation requise',
+    'home.features.aria': 'Caractéristiques',
+
+    // Send
+    'send.title': 'Envoyer un fichier',
+    'send.step1': 'Sélectionner un fichier',
+    'send.step2': 'Choisir un mot de passe',
+    'send.placeholder': 'Ex : soleil-bleu-42',
+    'send.passphrase.aria': 'Mot de passe de chiffrement',
+    'send.hint': '6 caractères minimum. Le destinataire devra le saisir pour déchiffrer.',
+    'send.cta': 'Chiffrer et envoyer',
+    'send.encrypting': 'Chiffrement en cours…',
+    'send.encrypting.sub': 'Le fichier est chiffré localement dans votre navigateur',
+    'send.encrypting.aria': 'Chiffrement',
+    'send.uploading': 'Envoi en cours…',
+    'send.connecting': 'Connexion au serveur…',
+    'send.uploading.aria': 'Envoi',
+    'send.again': 'Envoyer un autre fichier',
+    'send.error': 'Une erreur est survenue',
+    'send.retry': 'Réessayer',
+    'send.error.toolarge': 'Fichier trop volumineux ({size} — max {max} Mo)',
+    'send.error.password': 'Le mot de passe doit contenir au moins 6 caractères.',
+    'send.error.storage': 'Service de stockage non configuré sur le serveur.',
+
+    // Receive
+    'receive.title': 'Recevoir un fichier',
+    'receive.code.label': 'Code de transfert',
+    'receive.code.placeholder': 'Ex : AB3K7P',
+    'receive.check': 'Vérifier',
+    'receive.checking': 'Recherche…',
+    'receive.password.label': 'Mot de passe',
+    'receive.password.placeholder': "Mot de passe fourni par l'expéditeur",
+    'receive.download': 'Télécharger et déchiffrer',
+    'receive.downloading': 'Téléchargement du fichier chiffré…',
+    'receive.decrypting': 'Déchiffrement en cours…',
+    'receive.decrypting.aria': 'Déchiffrement en cours',
+    'receive.success': 'Fichier téléchargé et déchiffré avec succès !',
+    'receive.again': 'Recevoir un autre fichier',
+    'receive.expires': 'expire à',
+    'receive.error.password': "Veuillez saisir le mot de passe fourni par l'expéditeur.",
+    'receive.error.download': 'Téléchargement du fichier chiffré échoué',
+
+    // CodeDisplay
+    'code.sent': 'Fichier chiffré et envoyé',
+    'code.transfer': 'Code de transfert',
+    'code.password': 'Mot de passe',
+    'code.copied': '✓ Copié',
+    'code.copy.code': 'Copier le code',
+    'code.copy.password': 'Copier le mot de passe',
+    'code.qr.label': "Scanner depuis l'autre appareil",
+    'code.hint': 'Scannez le QR code ou ouvrez',
+    'code.hint.link': 'la page Recevoir',
+    'code.hint.end': 'et saisissez le code et le mot de passe.',
+    'code.cancel': 'Annuler ce transfert',
+    'code.cancelling': 'Annulation…',
+    'code.cancel.confirm': 'Annuler ce transfert ? Le fichier sera supprimé définitivement.',
+    'code.cancelled': 'Transfert annulé',
+    'code.cancelled.hint': 'Le fichier a été supprimé du serveur.',
+
+    // DropZone
+    'drop.aria': 'Zone de dépôt — cliquez ou glissez un fichier',
+    'drop.release': 'Relâchez pour déposer',
+    'drop.drag': 'Glissez un fichier ici',
+    'drop.or': 'ou ',
+    'drop.browse': 'parcourir',
+    'drop.change': 'Cliquez pour changer',
+
+    // BackButton
+    'back': 'Retour',
+
+    // ProgressBar
+    'progress.aria': 'Progression : {value} %',
+
+    // Lang toggle
+    'lang': 'EN',
+  },
+
+  en: {
+    // Home
+    'home.eyebrow': 'File transfer',
+    'home.subtitle': "Send a file from one machine to another.\nA code. A password. That's it.",
+    'home.send': 'Send a file',
+    'home.send.desc': 'Encrypt and share in seconds',
+    'home.receive': 'Receive a file',
+    'home.receive.desc': 'Enter the code and password',
+    'home.feature.aes': 'AES-256 encrypted',
+    'home.feature.aes.desc': 'The file is encrypted in your browser before upload',
+    'home.feature.expiry': 'Deleted after 24 h',
+    'home.feature.expiry.desc': 'No data kept beyond the transfer lifetime',
+    'home.feature.noaccount': 'No account',
+    'home.feature.noaccount.desc': 'No sign-up, no install required',
+    'home.features.aria': 'Features',
+
+    // Send
+    'send.title': 'Send a file',
+    'send.step1': 'Select a file',
+    'send.step2': 'Choose a password',
+    'send.placeholder': 'E.g.: blue-sun-42',
+    'send.passphrase.aria': 'Encryption password',
+    'send.hint': '6 characters minimum. The recipient will need it to decrypt.',
+    'send.cta': 'Encrypt and send',
+    'send.encrypting': 'Encrypting…',
+    'send.encrypting.sub': 'The file is being encrypted locally in your browser',
+    'send.encrypting.aria': 'Encrypting',
+    'send.uploading': 'Uploading…',
+    'send.connecting': 'Connecting to server…',
+    'send.uploading.aria': 'Uploading',
+    'send.again': 'Send another file',
+    'send.error': 'An error occurred',
+    'send.retry': 'Retry',
+    'send.error.toolarge': 'File too large ({size} — max {max} MB)',
+    'send.error.password': 'Password must be at least 6 characters.',
+    'send.error.storage': 'Storage service not configured on the server.',
+
+    // Receive
+    'receive.title': 'Receive a file',
+    'receive.code.label': 'Transfer code',
+    'receive.code.placeholder': 'E.g.: AB3K7P',
+    'receive.check': 'Check',
+    'receive.checking': 'Searching…',
+    'receive.password.label': 'Password',
+    'receive.password.placeholder': 'Password provided by the sender',
+    'receive.download': 'Download and decrypt',
+    'receive.downloading': 'Downloading encrypted file…',
+    'receive.decrypting': 'Decrypting…',
+    'receive.decrypting.aria': 'Decrypting',
+    'receive.success': 'File downloaded and decrypted successfully!',
+    'receive.again': 'Receive another file',
+    'receive.expires': 'expires at',
+    'receive.error.password': 'Please enter the password provided by the sender.',
+    'receive.error.download': 'Failed to download encrypted file',
+
+    // CodeDisplay
+    'code.sent': 'File encrypted and sent',
+    'code.transfer': 'Transfer code',
+    'code.password': 'Password',
+    'code.copied': '✓ Copied',
+    'code.copy.code': 'Copy code',
+    'code.copy.password': 'Copy password',
+    'code.qr.label': 'Scan from another device',
+    'code.hint': 'Scan the QR code or open',
+    'code.hint.link': 'the Receive page',
+    'code.hint.end': 'and enter the code and password.',
+    'code.cancel': 'Cancel this transfer',
+    'code.cancelling': 'Cancelling…',
+    'code.cancel.confirm': 'Cancel this transfer? The file will be permanently deleted.',
+    'code.cancelled': 'Transfer cancelled',
+    'code.cancelled.hint': 'The file has been deleted from the server.',
+
+    // DropZone
+    'drop.aria': 'Drop zone — click or drag a file',
+    'drop.release': 'Release to drop',
+    'drop.drag': 'Drag a file here',
+    'drop.or': 'or ',
+    'drop.browse': 'browse',
+    'drop.change': 'Click to change',
+
+    // BackButton
+    'back': 'Back',
+
+    // ProgressBar
+    'progress.aria': 'Progress: {value}%',
+
+    // Lang toggle
+    'lang': 'FR',
+  },
+};

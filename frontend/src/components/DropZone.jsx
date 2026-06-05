@@ -1,11 +1,8 @@
 import { useCallback, useState, useRef } from 'react';
+import { useI18n } from '../i18n/I18nContext.jsx';
 
-/**
- * Zone de dépôt de fichier (drag and drop + clic).
- * @param {File|null} file - fichier actuellement sélectionné
- * @param {(f: File) => void} onFile - callback appelé quand un fichier est déposé/sélectionné
- */
 export default function DropZone({ file, onFile }) {
+  const { t } = useI18n();
   const [dragging, setDragging] = useState(false);
   const inputRef = useRef(null);
 
@@ -21,7 +18,7 @@ export default function DropZone({ file, onFile }) {
     <div
       role="button"
       tabIndex={0}
-      aria-label="Zone de dépôt — cliquez ou glissez un fichier"
+      aria-label={t('drop.aria')}
       className={['dropzone', dragging && 'dropzone--active', file && 'dropzone--has-file'].filter(Boolean).join(' ')}
       onDragOver={onDragOver}
       onDragLeave={onDragLeave}
@@ -41,8 +38,8 @@ export default function DropZone({ file, onFile }) {
               <line x1="12" y1="3" x2="12" y2="15"/>
             </svg>
           </span>
-          <p className="dropzone__text">{dragging ? 'Relâchez pour déposer' : 'Glissez un fichier ici'}</p>
-          <p className="dropzone__sub">ou <span className="dropzone__browse">parcourir</span></p>
+          <p className="dropzone__text">{dragging ? t('drop.release') : t('drop.drag')}</p>
+          <p className="dropzone__sub">{t('drop.or')}<span className="dropzone__browse">{t('drop.browse')}</span></p>
         </>
       ) : (
         <>
@@ -53,7 +50,7 @@ export default function DropZone({ file, onFile }) {
             </svg>
           </span>
           <p className="dropzone__filename">{file.name}</p>
-          <p className="dropzone__sub">Cliquez pour changer</p>
+          <p className="dropzone__sub">{t('drop.change')}</p>
         </>
       )}
     </div>

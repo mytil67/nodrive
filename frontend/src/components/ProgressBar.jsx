@@ -1,8 +1,8 @@
-/**
- * Barre de progression accessible.
- * @param {number} value - valeur entre 0 et 100
- */
+import { useI18n } from '../i18n/I18nContext.jsx';
+
 export default function ProgressBar({ value }) {
+  const { t } = useI18n();
+
   return (
     <div
       className="progress-bar"
@@ -10,7 +10,7 @@ export default function ProgressBar({ value }) {
       aria-valuenow={value}
       aria-valuemin={0}
       aria-valuemax={100}
-      aria-label={`Progression : ${value} %`}
+      aria-label={t('progress.aria', { value })}
     >
       <div
         className="progress-bar__fill"

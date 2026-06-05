@@ -1,11 +1,10 @@
 import { Link } from 'react-router-dom';
+import { useI18n } from '../i18n/I18nContext.jsx';
 
-/**
- * Bouton retour réutilisable, visible et accessible.
- * @param {string} to    - route cible (défaut : "/")
- * @param {string} label - texte affiché (défaut : "Retour")
- */
-export default function BackButton({ to = '/', label = 'Retour' }) {
+export default function BackButton({ to = '/' }) {
+  const { t } = useI18n();
+  const label = t('back');
+
   return (
     <Link to={to} className="back-btn" aria-label={label}>
       <svg className="back-btn__icon" viewBox="0 0 24 24" fill="none"

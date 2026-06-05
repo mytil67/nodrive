@@ -6,15 +6,13 @@ import CodeDisplay from '../components/CodeDisplay.jsx';
 import { uploadEncryptedFile, checkServerHealth } from '../api/client.js';
 import { generateTransferCode, generateSalt, deriveKeyFromPassphrase, encryptFile } from '../utils/crypto.js';
 import { formatSize } from '../utils/format.js';
+import { useI18n } from '../i18n/I18nContext.jsx';
 
 const MAX_FILE_SIZE_MB    = parseInt(import.meta.env.VITE_MAX_FILE_SIZE_MB || '4', 10);
 const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
 
-/**
- * Page d'envoi d'un fichier.
- * États : idle → encrypting → uploading → done | error
- */
 export default function Send() {
+  const { t } = useI18n();
   const [file,       setFile]       = useState(null);
   const [passphrase, setPassphrase] = useState('');
   const [progress,   setProgress]   = useState(0);
@@ -26,12 +24,12 @@ export default function Send() {
     if (!file) return;
 
     if (file.size > MAX_FILE_SIZE_BYTES) {
-      setError(`Fichier trop volumineux (${formatSize(file.size)} — max ${MAX_FILE_SIZE_MB} Mo)`);
+      setError(t('send.error.toolarge', { size: formatSize(file.size), max: MAX_FILE_SIZE_MB }));
       setStatus('error');
       return;
     }
     if (passphrase.trim().length < 6) {
-      setError('Le mot de passe doit contenir au moins 6 caractères.');
+      setError(t('send.error.password'));
       setStatus('error');
       return;
     }
@@ -40,11 +38,11 @@ export default function Send() {
       setStatus('encrypting');
       const health = await checkServerHealth();
       if (health !== null && !health.hasBlobToken) {
-        throw new Error('Service de stockage non configuré sur le serveur.');
+        throw new Error(t('send.error.storage'));
       }
 
       const code = generateTransferCode();
-      const salt = generateSalt(); // sel 128 bits aléatoire, stocké dans les métadonnées
+      const salt = generateSalt();
       const key  = await deriveKeyFromPassphrase(passphrase.trim(), salt, 'encrypt');
 
       const fileBuffer    = await file.arrayBuffer();
@@ -80,7 +78,7 @@ export default function Send() {
   const fileTooLarge = file && file.size > MAX_FILE_SIZE_BYTES;
   const canSend = file && !fileTooLarge && passphrase.trim().length >= 6;
 
-  /* ── Idle ── */
+  /* -- Idle -- */
   if (status === 'idle') return (
     <main className="send-page">
       <BackButton />
@@ -92,21 +90,21 @@ export default function Send() {
             <path d="M12 19V5M5 12l7-7 7 7"/>
           </svg>
         </span>
-        <h1>Envoyer un fichier</h1>
+        <h1>{t('send.title')}</h1>
       </header>
 
       <div className="send-form">
 
-        {/* ── Étape 1 : fichier ── */}
+        {/* -- Step 1 -- */}
         <div className="send-step">
           <div className="send-step__label">
             <span className="send-step__num">1</span>
-            <span>Sélectionner un fichier</span>
+            <span>{t('send.step1')}</span>
           </div>
           <DropZone file={file} onFile={setFile} />
           {fileTooLarge && (
             <p className="send-step__error">
-              Fichier trop volumineux ({formatSize(file.size)} — max {MAX_FILE_SIZE_MB} Mo)
+              {t('send.error.toolarge', { size: formatSize(file.size), max: MAX_FILE_SIZE_MB })}
             </p>
           )}
           {file && !fileTooLarge && (
@@ -118,11 +116,11 @@ export default function Send() {
 
         <div className="send-form__divider" aria-hidden="true" />
 
-        {/* ── Étape 2 : mot de passe ── */}
+        {/* -- Step 2 -- */}
         <div className="send-step">
           <div className="send-step__label">
             <span className="send-step__num">2</span>
-            <span>Choisir un mot de passe</span>
+            <span>{t('send.step2')}</span>
           </div>
           <input
             id="passphrase-input"
@@ -130,14 +128,12 @@ export default function Send() {
             value={passphrase}
             onChange={(e) => setPassphrase(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && canSend && handleSend()}
-            placeholder="Ex : soleil-bleu-42"
+            placeholder={t('send.placeholder')}
             className="send-passphrase-input"
             autoComplete="off"
-            aria-label="Mot de passe de chiffrement"
+            aria-label={t('send.passphrase.aria')}
           />
-          <p className="send-step__hint">
-            6 caractères minimum. Le destinataire devra le saisir pour déchiffrer.
-          </p>
+          <p className="send-step__hint">{t('send.hint')}</p>
         </div>
 
       </div>
@@ -151,12 +147,12 @@ export default function Send() {
              strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
           <path d="M12 19V5M5 12l7-7 7 7"/>
         </svg>
-        Chiffrer et envoyer
+        {t('send.cta')}
       </button>
     </main>
   );
 
-  /* ── Encrypting ── */
+  /* -- Encrypting -- */
   if (status === 'encrypting') return (
     <main className="send-page">
       <BackButton />
@@ -168,16 +164,16 @@ export default function Send() {
             <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
           </svg>
         </div>
-        <p className="send-progress-card__title">Chiffrement en cours…</p>
-        <p className="send-progress-card__sub">Le fichier est chiffré localement dans votre navigateur</p>
-        <div className="progress-bar progress-bar--indeterminate" role="progressbar" aria-label="Chiffrement">
+        <p className="send-progress-card__title">{t('send.encrypting')}</p>
+        <p className="send-progress-card__sub">{t('send.encrypting.sub')}</p>
+        <div className="progress-bar progress-bar--indeterminate" role="progressbar" aria-label={t('send.encrypting.aria')}>
           <div className="progress-bar__fill progress-bar__fill--indeterminate" />
         </div>
       </div>
     </main>
   );
 
-  /* ── Uploading ── */
+  /* -- Uploading -- */
   if (status === 'uploading') return (
     <main className="send-page">
       <BackButton />
@@ -189,13 +185,13 @@ export default function Send() {
             <path d="M19 21H5"/>
           </svg>
         </div>
-        <p className="send-progress-card__title">Envoi en cours…</p>
+        <p className="send-progress-card__title">{t('send.uploading')}</p>
         <p className="send-progress-card__sub">
-          {progress > 0 ? `${progress} %` : 'Connexion au serveur…'}
+          {progress > 0 ? `${progress} %` : t('send.connecting')}
         </p>
         {progress > 0
           ? <ProgressBar value={progress} />
-          : <div className="progress-bar progress-bar--indeterminate" role="progressbar" aria-label="Envoi">
+          : <div className="progress-bar progress-bar--indeterminate" role="progressbar" aria-label={t('send.uploading.aria')}>
               <div className="progress-bar__fill progress-bar__fill--indeterminate" />
             </div>
         }
@@ -203,18 +199,18 @@ export default function Send() {
     </main>
   );
 
-  /* ── Done ── */
+  /* -- Done -- */
   if (status === 'done' && result) return (
     <main className="send-page">
       <BackButton />
       <CodeDisplay code={result.code} passphrase={result.passphrase} deleteToken={result.deleteToken} />
       <button className="btn btn--secondary send-again" onClick={reset}>
-        Envoyer un autre fichier
+        {t('send.again')}
       </button>
     </main>
   );
 
-  /* ── Error ── */
+  /* -- Error -- */
   return (
     <main className="send-page">
       <BackButton />
@@ -227,9 +223,9 @@ export default function Send() {
             <line x1="12" y1="16" x2="12.01" y2="16"/>
           </svg>
         </div>
-        <p className="send-progress-card__title">Une erreur est survenue</p>
+        <p className="send-progress-card__title">{t('send.error')}</p>
         <p className="send-progress-card__sub send-progress-card__sub--error">{error}</p>
-        <button className="btn btn--secondary" onClick={reset}>Réessayer</button>
+        <button className="btn btn--secondary" onClick={reset}>{t('send.retry')}</button>
       </div>
     </main>
   );
