@@ -86,7 +86,10 @@ function uploadViaProxy(code, encryptedData, fileMeta, onProgress) {
  * Les métadonnées sont créées ensuite via /api/upload/complete.
  */
 async function uploadViaClient(code, encryptedData, fileMeta, onProgress) {
-  const blob = await upload(`transfers/${code}/file.enc`, encryptedData, {
+  // Convertir en Blob — le SDK @vercel/blob/client le gère mieux que Uint8Array brut
+  const file = new Blob([encryptedData], { type: 'application/octet-stream' });
+
+  const blob = await upload(`transfers/${code}/file.enc`, file, {
     access: 'private',
     handleUploadUrl: '/api/upload/authorize',
     contentType: 'application/octet-stream',
@@ -96,6 +99,7 @@ async function uploadViaClient(code, encryptedData, fileMeta, onProgress) {
       size: fileMeta.size,
       salt: fileMeta.salt,
     }),
+    multipart: encryptedData.byteLength > 8 * 1024 * 1024, // multipart au-delà de 8 Mo
     onUploadProgress: ({ percentage }) => {
       onProgress(Math.min(Math.round(percentage), 95));
     },
