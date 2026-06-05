@@ -171,6 +171,7 @@ export default async function handler(req, res) {
       },
     });
 
+    console.log('[upload] jsonResponse type:', jsonResponse?.type, '— clés:', Object.keys(jsonResponse || {}));
     return res.json(jsonResponse);
   } catch (err) {
     // Logguer l'erreur complète côté serveur pour diagnostiquer

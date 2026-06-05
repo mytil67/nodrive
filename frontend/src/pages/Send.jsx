@@ -134,8 +134,14 @@ export default function Send() {
       {status === 'uploading' && (
         <section className="upload-progress">
           <p>Envoi du fichier chiffré…</p>
-          <ProgressBar value={progress} />
-          <p className="progress-pct">{progress} %</p>
+          {progress === 0 ? (
+            <div className="progress-bar progress-bar--indeterminate" role="progressbar" aria-label="Envoi en cours">
+              <div className="progress-bar__fill progress-bar__fill--indeterminate" />
+            </div>
+          ) : (
+            <ProgressBar value={progress} />
+          )}
+          <p className="progress-pct">{progress > 0 ? `${progress} %` : 'Connexion au CDN…'}</p>
         </section>
       )}
 

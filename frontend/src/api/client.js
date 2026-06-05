@@ -47,6 +47,8 @@ export async function uploadEncryptedFile(code, encryptedData, fileMeta, onProgr
   const expiresAt  = Date.now() +
     parseInt(import.meta.env.VITE_EXPIRATION_HOURS || '24', 10) * 3600 * 1000;
 
+  console.log('[upload] Démarrage upload — code:', code, 'taille:', encryptedData.byteLength, 'bytes');
+
   const uploadPromise = upload(
     `transfers/${code}/file.enc`,
     new Blob([encryptedData], { type: 'application/octet-stream' }),
@@ -59,11 +61,18 @@ export async function uploadEncryptedFile(code, encryptedData, fileMeta, onProgr
         size:         fileMeta.size,
         expiresAt,
       }),
-      onUploadProgress: ({ percentage }) => {
+      onUploadProgress: ({ percentage, loaded, total }) => {
+        console.log('[upload] Progression:', percentage, '%', loaded, '/', total);
         if (percentage != null) onProgress(Math.round(percentage));
       },
     }
-  );
+  ).then((result) => {
+    console.log('[upload] upload() résolu :', result);
+    return result;
+  }).catch((err) => {
+    console.error('[upload] upload() rejeté :', err.name, err.message, err);
+    throw err;
+  });
 
   // Garde-fou : si upload() se bloque silencieusement (ex: serveur renvoie 5xx
   // sans que @vercel/blob/client lève d'exception), on force une erreur après
@@ -78,6 +87,7 @@ export async function uploadEncryptedFile(code, encryptedData, fileMeta, onProgr
 
   try {
     await Promise.race([uploadPromise, timeoutPromise]);
+    console.log('[upload] Terminé avec succès');
   } finally {
     clearTimeout(timeoutId);
   }
