@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
+import BackButton from '../components/BackButton.jsx';
 import ProgressBar from '../components/ProgressBar.jsx';
 import { getFileInfo, deleteTransfer } from '../api/client.js';
 import { deriveKeyFromPassphrase, decryptFile } from '../utils/crypto.js';
@@ -149,7 +150,7 @@ export default function Receive() {
 
   return (
     <main className="page">
-      <Link to="/" className="back-link">← Retour</Link>
+      <BackButton />
       <h1>Recevoir un fichier</h1>
 
       {/* ── Saisie du code ── */}
