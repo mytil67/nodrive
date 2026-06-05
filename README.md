@@ -1,5 +1,7 @@
 # NoDrive
 
+🇬🇧 [English version](README.en.md)
+
 Transfert de fichiers temporaire et chiffré entre deux machines — sans compte, sans installation, depuis le navigateur.
 
 **[→ nodrive.vercel.app](https://nodrive.vercel.app)** · dev by [@mytil](https://github.com/mytil67)
