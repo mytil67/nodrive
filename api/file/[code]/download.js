@@ -7,7 +7,6 @@
  */
 
 import { list, put, del } from '@vercel/blob';
-import { Readable } from 'stream';
 
 const CODE_REGEX = /^[A-Z2-9]{6}$/;
 
@@ -80,15 +79,19 @@ export default async function handler(req, res) {
     res.setHeader('Content-Disposition', 'attachment; filename="file.enc"');
     res.setHeader('Cache-Control', 'no-store');
 
-    // Stream sans bufferisation — pipe directement le blob vers le client
-    const nodeStream = Readable.fromWeb(fileResponse.body);
-
-    await new Promise((resolve, reject) => {
-      nodeStream.pipe(res);
-      nodeStream.on('end', resolve);
-      nodeStream.on('error', reject);
-      res.on('error', reject);
-    });
+    // Stream par chunks — évite de tout bufferiser en mémoire
+    const reader = fileResponse.body.getReader();
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        res.write(Buffer.from(value));
+      }
+      res.end();
+    } catch (streamErr) {
+      console.error('[download] Erreur stream :', streamErr.message);
+      if (!res.writableEnded) res.end();
+    }
 
     // 5. Supprimer le fichier chiffré après envoi si quota atteint
     if (shouldDelete) {
