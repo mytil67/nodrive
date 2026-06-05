@@ -75,7 +75,7 @@ export default async function handler(req, res) {
       access:          'private',
       contentType:     'application/octet-stream',
       addRandomSuffix: false,
-      allowOverwrite:  false,
+      allowOverwrite:  true,
     });
 
     // Dernier chunk → créer les métadonnées
@@ -123,7 +123,7 @@ export default async function handler(req, res) {
         access:          'private',
         contentType:     'application/json',
         addRandomSuffix: false,
-        allowOverwrite:  false,
+        allowOverwrite:  true,
       });
 
       console.log(`[upload/chunk] Transfert ${code} complet — ${chunkTotal} chunks, ${encryptedSize} bytes`);

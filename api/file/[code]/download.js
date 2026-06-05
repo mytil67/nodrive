@@ -6,9 +6,11 @@
  * Deux modes :
  *  - Fichier unique (ancien format / petits fichiers) : stream direct
  *  - Fichier chunked (>3.5 Mo) : le frontend appelle ?chunk=0, ?chunk=1, etc.
- *    Le compteur de téléchargements est incrémenté sur chunk=0 uniquement.
  *
- * Chaque chunk fait <4 Mo, donc passe sous la limite de réponse Vercel (4.5 Mo).
+ * Gestion du quota de téléchargements pour les fichiers chunked :
+ *  - chunk=0 : incrémente le compteur (mais ne supprime JAMAIS la metadata)
+ *  - chunks intermédiaires : servis sans vérification de quota
+ *  - dernier chunk : après envoi, supprime metadata + chunks si quota atteint
  */
 
 import { list, put, del } from '@vercel/blob';
@@ -48,37 +50,41 @@ export default async function handler(req, res) {
     }
     const meta = await metaResponse.json();
 
-    // 2. Vérifications
+    // 2. Vérification expiration (toujours)
     if (Date.now() > meta.expiresAt) {
       return res.status(410).json({ error: 'Ce fichier a expiré' });
-    }
-    if (meta.maxDownloads > 0 && meta.downloadCount >= meta.maxDownloads) {
-      return res.status(410).json({ error: 'Nombre maximum de téléchargements atteint' });
     }
 
     // ── Mode chunked ──────────────────────────────────────────────────────
     if (meta.chunkUrls && meta.chunkUrls.length > 0) {
       if (chunkIndex < 0 || chunkIndex >= meta.chunkUrls.length) {
-        return res.status(400).json({ error: `Index de chunk invalide (0-${meta.chunkUrls.length - 1})` });
+        return res.status(400).json({
+          error: `Index de chunk invalide (0-${meta.chunkUrls.length - 1})`,
+        });
       }
 
-      // Incrémenter le compteur uniquement sur le premier chunk
-      if (chunkIndex === 0) {
-        const newCount = meta.downloadCount + 1;
-        const shouldDelete = meta.maxDownloads > 0 && newCount >= meta.maxDownloads;
+      const isFirstChunk = chunkIndex === 0;
+      const isLastChunk  = chunkIndex === meta.chunkUrls.length - 1;
 
-        if (shouldDelete) {
-          await del([metaBlobs[0].url]);
-        } else {
-          const updatedMeta = { ...meta, downloadCount: newCount };
-          await put(metaBlobs[0].pathname, JSON.stringify(updatedMeta, null, 2), {
-            access:          'private',
-            contentType:     'application/json',
-            addRandomSuffix: false,
-            allowOverwrite:  true,
-          });
+      // Vérifier le quota UNIQUEMENT sur le premier chunk
+      // (les chunks suivants font partie du même téléchargement)
+      if (isFirstChunk) {
+        if (meta.maxDownloads > 0 && meta.downloadCount >= meta.maxDownloads) {
+          return res.status(410).json({ error: 'Nombre maximum de téléchargements atteint' });
         }
+
+        // Incrémenter le compteur — mais GARDER la metadata
+        // (on en a besoin pour servir les chunks suivants)
+        const updatedMeta = { ...meta, downloadCount: meta.downloadCount + 1 };
+        await put(metaBlobs[0].pathname, JSON.stringify(updatedMeta, null, 2), {
+          access:          'private',
+          contentType:     'application/json',
+          addRandomSuffix: false,
+          allowOverwrite:  true,
+        });
       }
+      // Chunks > 0 : pas de vérification de quota, la "réservation"
+      // a été faite sur chunk 0.
 
       // Servir le chunk demandé
       const chunkUrl = meta.chunkUrls[chunkIndex];
@@ -86,6 +92,7 @@ export default async function handler(req, res) {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!chunkResponse.ok) {
+        console.error(`[download] Chunk ${chunkIndex} introuvable : ${chunkUrl} → ${chunkResponse.status}`);
         return res.status(404).json({ error: `Chunk ${chunkIndex} introuvable` });
       }
 
@@ -108,24 +115,36 @@ export default async function handler(req, res) {
         if (!res.writableEnded) res.end();
       }
 
-      // Supprimer les chunks après le dernier chunk si quota atteint
-      const isLastChunk = chunkIndex === meta.chunkUrls.length - 1;
-      const shouldDeleteFiles = meta.maxDownloads > 0 && (meta.downloadCount + 1) >= meta.maxDownloads;
-      if (isLastChunk && shouldDeleteFiles) {
-        await del(meta.chunkUrls).catch((e) =>
-          console.error('[download] Erreur suppression chunks :', e.message)
-        );
+      // Après le dernier chunk : nettoyer si quota atteint
+      if (isLastChunk) {
+        const finalCount = meta.downloadCount + 1;
+        const quotaReached = meta.maxDownloads > 0 && finalCount >= meta.maxDownloads;
+        if (quotaReached) {
+          // Supprimer metadata + tous les chunks
+          const urlsToDelete = [metaBlobs[0].url, ...meta.chunkUrls];
+          await del(urlsToDelete).catch((e) =>
+            console.error('[download] Erreur suppression après quota :', e.message)
+          );
+          console.log(`[download] Transfert ${code} supprimé (quota atteint)`);
+        }
       }
 
       return;
     }
 
     // ── Mode fichier unique ───────────────────────────────────────────────
-    // 3. Incrémenter le compteur AVANT de servir le fichier (anti race condition)
+    // Vérifier le quota
+    if (meta.maxDownloads > 0 && meta.downloadCount >= meta.maxDownloads) {
+      return res.status(410).json({ error: 'Nombre maximum de téléchargements atteint' });
+    }
+
+    // Incrémenter le compteur AVANT de servir le fichier (anti race condition)
     const newCount = meta.downloadCount + 1;
     const shouldDelete = meta.maxDownloads > 0 && newCount >= meta.maxDownloads;
 
     if (shouldDelete) {
+      // Pour un fichier unique, on peut supprimer la metadata tout de suite
+      // car on n'en a plus besoin après
       await del([metaBlobs[0].url]);
     } else {
       const updatedMeta = { ...meta, downloadCount: newCount };
