@@ -65,7 +65,7 @@ export default function Receive() {
             `/api/file/${encodeURIComponent(code)}/download?chunk=${i}`
           );
           if (!response.ok) {
-            let msg = t('receive.error.download');
+            let msg = `${t('receive.error.download')} (chunk ${i}, HTTP ${response.status})`;
             try { const b = await response.json(); if (b.error) msg = b.error; } catch {}
             throw new Error(msg);
           }

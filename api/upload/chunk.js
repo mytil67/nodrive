@@ -33,6 +33,13 @@ function sanitizeFilename(name) {
     .trim() || 'fichier';
 }
 
+// Désactiver le body parser Vercel — on lit le body binaire manuellement
+export const config = {
+  api: {
+    bodyParser: false,
+  },
+};
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Méthode non autorisée' });
@@ -133,7 +140,7 @@ export default async function handler(req, res) {
     return res.json({ ok: true, chunk: chunkIndex });
 
   } catch (err) {
-    console.error('[upload/chunk] Erreur:', err.message);
-    return res.status(500).json({ error: "Erreur lors de l'upload" });
+    console.error('[upload/chunk] Erreur:', err.message, err.stack);
+    return res.status(500).json({ error: `Erreur upload chunk ${chunkIndex}: ${err.message}` });
   }
 }

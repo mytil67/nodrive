@@ -33,6 +33,13 @@ function sanitizeFilename(name) {
     .trim() || 'fichier';
 }
 
+// Désactiver le body parser Vercel — on lit le body binaire manuellement
+export const config = {
+  api: {
+    bodyParser: false,
+  },
+};
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Méthode non autorisée' });
