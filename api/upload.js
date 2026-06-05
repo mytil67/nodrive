@@ -1,20 +1,27 @@
 /**
  * POST /api/upload
  *
- * Génère le token client pour l'upload direct navigateur → Vercel Blob CDN.
- * Cette Function ne voit jamais le contenu du fichier, seulement les métadonnées.
+ * Reçoit le fichier chiffré depuis le navigateur (corps binaire brut)
+ * et le stocke dans Vercel Blob via put() côté serveur.
+ * La clé de chiffrement n'est JAMAIS envoyée ici (elle reste dans le fragment # de l'URL).
  *
- * IMPORTANT : onUploadCompleted est intentionnellement absent.
- * Le callback CDN→serveur causait des blocages indéfinis avec @vercel/blob v2.
- * Les métadonnées sont stockées par /api/complete, appelé par le navigateur
- * après que upload() résout.
+ * Métadonnées transmises via en-têtes HTTP personnalisés :
+ *   x-blob-code      : code de transfert (6 chars, ex: ABCD12)
+ *   x-blob-name      : nom original du fichier (encodé URI)
+ *   x-blob-size      : taille originale en octets
+ *
+ * Avantage par rapport à @vercel/blob/client :
+ *   Le upload client-side de @vercel/blob v2 envoie vers vercel.com/api/blob
+ *   (API management) qui ne supporte pas CORS — cassé pour les navigateurs.
+ *   Cette approche proxy évite complètement ce problème.
  */
 
-import { handleUpload } from '@vercel/blob/client';
+import { put } from '@vercel/blob';
 
-const MAX_FILE_SIZE_MB = parseInt(process.env.MAX_FILE_SIZE_MB || '25', 10);
+const MAX_FILE_SIZE_MB = parseInt(process.env.MAX_FILE_SIZE_MB || '4', 10);
+const EXPIRATION_HOURS = parseInt(process.env.EXPIRATION_HOURS || '24', 10);
+const MAX_DOWNLOADS    = parseInt(process.env.MAX_DOWNLOADS    || '1',  10);
 
-/** Format attendu pour un code de transfert. */
 const CODE_REGEX = /^[A-Z2-9]{6}$/;
 
 function sanitizeFilename(name) {
@@ -23,27 +30,6 @@ function sanitizeFilename(name) {
     .replace(/[^a-zA-Z0-9.\-_ ]/g, '_')
     .substring(0, 200)
     .trim() || 'fichier';
-}
-
-function readBody(req) {
-  return new Promise((resolve, reject) => {
-    if (req.body !== null && req.body !== undefined && typeof req.body === 'object' && !Buffer.isBuffer(req.body)) {
-      return resolve(req.body);
-    }
-    if (typeof req.body === 'string') {
-      try { return resolve(JSON.parse(req.body)); } catch { return resolve({}); }
-    }
-    if (Buffer.isBuffer(req.body)) {
-      try { return resolve(JSON.parse(req.body.toString('utf8'))); } catch { return resolve({}); }
-    }
-    const chunks = [];
-    req.on('data', (chunk) => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
-    req.on('end', () => {
-      const raw = Buffer.concat(chunks).toString('utf8');
-      try { resolve(JSON.parse(raw)); } catch { resolve({}); }
-    });
-    req.on('error', reject);
-  });
 }
 
 export default async function handler(req, res) {
@@ -55,56 +41,61 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: 'Configuration serveur incomplète : BLOB_READ_WRITE_TOKEN absent.' });
   }
 
-  const body = await readBody(req);
-  if (!body || !body.type) {
-    return res.status(400).json({ error: 'Corps de requête invalide' });
+  // Lecture des métadonnées depuis les en-têtes
+  const code         = req.headers['x-blob-code'] || '';
+  const originalName = req.headers['x-blob-name'] ? decodeURIComponent(req.headers['x-blob-name']) : '';
+  const sizeBytes    = parseInt(req.headers['x-blob-size'] || '0', 10);
+
+  if (!CODE_REGEX.test(code)) {
+    return res.status(400).json({ error: 'Code de transfert invalide' });
+  }
+  if (!sizeBytes || sizeBytes > MAX_FILE_SIZE_MB * 1024 * 1024) {
+    return res.status(400).json({ error: `Fichier trop volumineux (max ${MAX_FILE_SIZE_MB} Mo)` });
+  }
+  if (!originalName) {
+    return res.status(400).json({ error: 'Nom de fichier manquant' });
   }
 
+  const expiresAt = Date.now() + EXPIRATION_HOURS * 3600 * 1000;
+
   try {
-    const jsonResponse = await handleUpload({
-      body,
-      request: req,
-
-      onBeforeGenerateToken: async (pathname, clientPayload) => {
-        let payload;
-        try { payload = JSON.parse(clientPayload); }
-        catch { throw new Error('Payload invalide'); }
-
-        if (!CODE_REGEX.test(payload.code)) throw new Error('Code de transfert invalide');
-
-        const sizeBytes = parseInt(payload.size, 10);
-        if (!sizeBytes || sizeBytes > MAX_FILE_SIZE_MB * 1024 * 1024) {
-          throw new Error(`Fichier trop volumineux (max ${MAX_FILE_SIZE_MB} Mo)`);
-        }
-
-        if (!payload.originalName || typeof payload.originalName !== 'string') {
-          throw new Error('Nom de fichier invalide');
-        }
-
-        console.log('[upload] token généré pour code:', payload.code);
-
-        return {
-          allowedContentTypes: ['application/octet-stream'],
-          maximumSizeInBytes:  MAX_FILE_SIZE_MB * 1024 * 1024,
-          addRandomSuffix:     false,
-          // Pas de callbackUrl : onUploadCompleted géré via /api/complete
-          tokenPayload: JSON.stringify({
-            code:         payload.code,
-            originalName: sanitizeFilename(payload.originalName),
-            size:         sizeBytes,
-          }),
-        };
-      },
-
-      // Pas de onUploadCompleted → pas de callback CDN→serveur dans le token
+    // Streaming direct : le corps de la requête (flux Node.js) est pipé vers Vercel Blob
+    // sans bufferisation en mémoire — pas de limite bodyParser.
+    const blob = await put(`transfers/${code}/file.enc`, req, {
+      access:          'public',
+      contentType:     'application/octet-stream',
+      addRandomSuffix: false,
+      allowOverwrite:  true,
     });
 
-    return res.json(jsonResponse);
+    console.log('[upload] Fichier stocké :', blob.pathname);
+
+    // Stockage des métadonnées publiques (sans clé de chiffrement)
+    const meta = {
+      code,
+      originalName:  sanitizeFilename(originalName),
+      size:          sizeBytes,
+      blobPathname:  blob.pathname,
+      blobUrl:       blob.url,
+      createdAt:     Date.now(),
+      expiresAt,
+      maxDownloads:  MAX_DOWNLOADS,
+      downloadCount: 0,
+      encrypted:     true,
+    };
+
+    await put(`metadata/${code}.json`, JSON.stringify(meta, null, 2), {
+      access:          'public',
+      contentType:     'application/json',
+      addRandomSuffix: false,
+      allowOverwrite:  true,
+    });
+
+    console.log(`[upload] Transfert ${code} enregistré — expire ${new Date(expiresAt).toISOString()}`);
+    return res.json({ ok: true });
+
   } catch (err) {
     console.error('[upload] Erreur:', err.message);
-    const isDev = process.env.VERCEL_ENV !== 'production';
-    return res.status(400).json({
-      error: isDev ? err.message : 'Erreur lors de la génération du token d\'upload',
-    });
+    return res.status(500).json({ error: `Erreur lors de l'upload : ${err.message}` });
   }
 }

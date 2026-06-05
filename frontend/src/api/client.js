@@ -1,13 +1,11 @@
 /**
- * Couche d'accès à l'API NoDrive (Vercel Serverless + Vercel Blob).
+ * Couche d'accès à l'API NoDrive.
  *
- * Upload : navigateur → Vercel Blob CDN (via @vercel/blob/client upload())
- *          puis POST /api/complete pour stocker les métadonnées.
- * Infos  : GET  /api/file/:code/info
- * Suppression : POST /api/file/:code/delete
+ * Upload : XHR natif navigateur → /api/upload (proxy serveur → Vercel Blob).
+ *          @vercel/blob/client est volontairement absent côté frontend :
+ *          en v2.x il envoie le PUT vers vercel.com/api/blob (API management,
+ *          sans CORS) au lieu du CDN blob.vercel-storage.com.
  */
-
-import { upload } from '@vercel/blob/client';
 
 export async function checkServerHealth() {
   try {
@@ -20,83 +18,54 @@ export async function checkServerHealth() {
 }
 
 /**
- * Upload un fichier chiffré vers Vercel Blob puis enregistre les métadonnées.
+ * Upload un fichier chiffré vers /api/upload via XHR.
  *
- * Flux :
- *  1. upload() → /api/upload pour obtenir le token, puis PUT direct vers le CDN
- *  2. upload() résout avec { url, pathname, ... }
- *  3. POST /api/complete pour stocker metadata/{code}.json
- *
- * Le callback CDN→serveur (onUploadCompleted) est volontairement absent :
- * il causait des blocages indéfinis avec @vercel/blob v2 + fetch streaming.
+ * Le corps de la requête est le binaire brut (Uint8Array).
+ * Les métadonnées sont transmises dans des en-têtes personnalisés.
+ * La progression est fournie par XHR.upload.onprogress — pas de streaming
+ * ReadableStream, pas de CORS, pas de dépendance @vercel/blob/client.
  *
  * @param {string}     code          - code de transfert (6 chars)
  * @param {Uint8Array} encryptedData - données chiffrées (IV + ciphertext)
  * @param {{ originalName: string, size: number }} fileMeta
  * @param {(pct: number) => void} onProgress
  */
-export async function uploadEncryptedFile(code, encryptedData, fileMeta, onProgress) {
-  const TIMEOUT_MS = 120_000; // 2 min
-  const expiresAt  = Date.now() +
-    parseInt(import.meta.env.VITE_EXPIRATION_HOURS || '24', 10) * 3600 * 1000;
+export function uploadEncryptedFile(code, encryptedData, fileMeta, onProgress) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', '/api/upload');
+    xhr.timeout = 120_000; // 2 min
 
-  console.log('[upload] Démarrage — code:', code, 'taille:', encryptedData.byteLength, 'bytes');
+    xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+    xhr.setRequestHeader('x-blob-code', code);
+    xhr.setRequestHeader('x-blob-name', encodeURIComponent(fileMeta.originalName));
+    xhr.setRequestHeader('x-blob-size', String(fileMeta.size));
 
-  const uploadPromise = (async () => {
-    // Étape 1 : upload vers le CDN
-    const result = await upload(
-      `transfers/${code}/file.enc`,
-      new Blob([encryptedData], { type: 'application/octet-stream' }),
-      {
-        access:          'public',
-        handleUploadUrl: '/api/upload',
-        clientPayload:   JSON.stringify({
-          code,
-          originalName: fileMeta.originalName,
-          size:         fileMeta.size,
-        }),
+    xhr.upload.addEventListener('progress', (e) => {
+      if (e.lengthComputable) {
+        const pct = Math.round((e.loaded / e.total) * 100);
+        onProgress(Math.min(pct, 99)); // 99% max — 100% à la réponse serveur
       }
-    );
-    console.log('[upload] CDN upload résolu — url:', result.url);
-
-    // Étape 2 : enregistrement des métadonnées
-    const res = await fetch('/api/complete', {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        code,
-        blobUrl:      result.url,
-        blobPathname: result.pathname,
-        originalName: fileMeta.originalName,
-        size:         fileMeta.size,
-        expiresAt,
-      }),
     });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.error || `Erreur /api/complete : HTTP ${res.status}`);
-    }
 
-    console.log('[upload] Métadonnées enregistrées');
-    onProgress(100);
-  })().catch((err) => {
-    console.error('[upload] Erreur:', err.name, err.message);
-    throw err;
+    xhr.addEventListener('load', () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        onProgress(100);
+        resolve();
+      } else {
+        let msg = `Erreur HTTP ${xhr.status}`;
+        try { const b = JSON.parse(xhr.responseText); if (b.error) msg = b.error; } catch {}
+        reject(new Error(msg));
+      }
+    });
+
+    xhr.addEventListener('error',   () => reject(new Error('Erreur réseau lors de l\'upload')));
+    xhr.addEventListener('abort',   () => reject(new Error('Upload annulé')));
+    xhr.addEventListener('timeout', () => reject(new Error('Upload interrompu : délai de 2 min dépassé')));
+
+    console.log('[upload] Envoi — code:', code, 'taille:', encryptedData.byteLength, 'bytes');
+    xhr.send(encryptedData);
   });
-
-  let timeoutId;
-  const timeoutPromise = new Promise((_, reject) => {
-    timeoutId = setTimeout(
-      () => reject(new Error(`Upload interrompu : pas de réponse après ${TIMEOUT_MS / 1000} s`)),
-      TIMEOUT_MS
-    );
-  });
-
-  try {
-    await Promise.race([uploadPromise, timeoutPromise]);
-  } finally {
-    clearTimeout(timeoutId);
-  }
 }
 
 export async function getFileInfo(code) {
