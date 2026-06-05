@@ -53,33 +53,72 @@ export default function Receive() {
       setStatus('downloading');
       setProgress(0);
 
-      const response = await fetch(`/api/file/${encodeURIComponent(code)}/download`);
-      if (!response.ok) {
-        let msg = t('receive.error.download');
-        try { const b = await response.json(); if (b.error) msg = b.error; } catch {}
-        throw new Error(msg);
-      }
+      let encryptedData;
 
-      const contentLength = parseInt(response.headers.get('content-length') || '0', 10);
-      const reader = response.body.getReader();
-      const chunks = [];
-      let loaded = 0;
+      if (fileInfo.chunkCount > 0) {
+        // ── Mode chunked : télécharger chaque chunk séparément ──
+        const parts = [];
+        let totalLoaded = 0;
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        chunks.push(value);
-        loaded += value.length;
-        if (contentLength > 0) {
-          setProgress(Math.round((loaded / contentLength) * 100));
+        for (let i = 0; i < fileInfo.chunkCount; i++) {
+          const response = await fetch(
+            `/api/file/${encodeURIComponent(code)}/download?chunk=${i}`
+          );
+          if (!response.ok) {
+            let msg = t('receive.error.download');
+            try { const b = await response.json(); if (b.error) msg = b.error; } catch {}
+            throw new Error(msg);
+          }
+
+          const reader = response.body.getReader();
+          const chunks = [];
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            chunks.push(value);
+            totalLoaded += value.length;
+          }
+
+          for (const c of chunks) parts.push(c);
+          setProgress(Math.round(((i + 1) / fileInfo.chunkCount) * 100));
         }
-      }
 
-      const encryptedData = new Uint8Array(loaded);
-      let offset = 0;
-      for (const chunk of chunks) {
-        encryptedData.set(chunk, offset);
-        offset += chunk.length;
+        encryptedData = new Uint8Array(totalLoaded);
+        let offset = 0;
+        for (const part of parts) {
+          encryptedData.set(part, offset);
+          offset += part.length;
+        }
+      } else {
+        // ── Mode fichier unique ──
+        const response = await fetch(`/api/file/${encodeURIComponent(code)}/download`);
+        if (!response.ok) {
+          let msg = t('receive.error.download');
+          try { const b = await response.json(); if (b.error) msg = b.error; } catch {}
+          throw new Error(msg);
+        }
+
+        const contentLength = parseInt(response.headers.get('content-length') || '0', 10);
+        const reader = response.body.getReader();
+        const chunks = [];
+        let loaded = 0;
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          chunks.push(value);
+          loaded += value.length;
+          if (contentLength > 0) {
+            setProgress(Math.round((loaded / contentLength) * 100));
+          }
+        }
+
+        encryptedData = new Uint8Array(loaded);
+        let offset = 0;
+        for (const chunk of chunks) {
+          encryptedData.set(chunk, offset);
+          offset += chunk.length;
+        }
       }
 
       setStatus('decrypting');

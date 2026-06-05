@@ -61,6 +61,7 @@ export default async function handler(req, res) {
       expiresAt:     meta.expiresAt,
       maxDownloads:  meta.maxDownloads,
       downloadCount: meta.downloadCount,
+      chunkCount:    meta.chunkCount || 0,  // 0 = fichier unique, >0 = chunked
     });
   } catch (err) {
     console.error('[info] Erreur :', err.message);
