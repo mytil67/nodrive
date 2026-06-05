@@ -63,6 +63,14 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'Trop de chunks' });
   }
 
+  // Vérifier qu'on n'écrase pas un transfert existant (premier chunk uniquement)
+  if (chunkIndex === 0) {
+    const { blobs: existing } = await list({ prefix: `metadata/${code}.json`, limit: 1 });
+    if (existing.length) {
+      return res.status(409).json({ error: 'Code déjà utilisé — réessayez' });
+    }
+  }
+
   // Lire le body du chunk
   const chunks = [];
   let totalBytes = 0;

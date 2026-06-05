@@ -16,6 +16,5 @@ export default function handler(req, res) {
   return res.json({
     ok:           true,
     hasBlobToken: Boolean(process.env.BLOB_READ_WRITE_TOKEN),
-    env:          process.env.VERCEL_ENV || 'local',
   });
 }

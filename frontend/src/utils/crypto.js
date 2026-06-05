@@ -19,10 +19,19 @@
  * @returns {string}
  */
 export function generateTransferCode() {
-  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-  const bytes = new Uint8Array(6);
-  crypto.getRandomValues(bytes);
-  return Array.from(bytes).map((b) => alphabet[b % alphabet.length]).join('');
+  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // 31 chars
+  const limit = 256 - (256 % alphabet.length); // 248 — rejection sampling
+  const result = [];
+  while (result.length < 6) {
+    const bytes = new Uint8Array(8);
+    crypto.getRandomValues(bytes);
+    for (const b of bytes) {
+      if (b < limit && result.length < 6) {
+        result.push(alphabet[b % alphabet.length]);
+      }
+    }
+  }
+  return result.join('');
 }
 
 // ---------------------------------------------------------------------------

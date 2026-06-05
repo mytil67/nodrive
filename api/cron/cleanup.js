@@ -68,9 +68,50 @@ export default async function handler(req, res) {
       }
     } while (cursor);
 
-    const message = `Nettoyage terminé : ${deleted} supprimé(s), ${errors} erreur(s)`;
+    // Phase 2 : supprimer les chunks orphelins (upload échoué à mi-parcours)
+    // Un répertoire transfers/{code}/ sans metadata/{code}.json associée
+    // signifie un upload avorté — on nettoie.
+    let orphaned = 0;
+    let transferCursor = undefined;
+    const activeCodes = new Set();
+
+    // Collecter les codes qui ont encore une metadata valide
+    let metaCursor2 = undefined;
+    do {
+      const { blobs, cursor: nc } = await list({ prefix: 'metadata/', limit: 100, cursor: metaCursor2 });
+      metaCursor2 = nc;
+      for (const b of blobs) {
+        const match = b.pathname.match(/^metadata\/([A-Z2-9]{6})\.json$/);
+        if (match) activeCodes.add(match[1]);
+      }
+    } while (metaCursor2);
+
+    // Scanner les transfers/ et supprimer ceux sans metadata
+    do {
+      const { blobs, cursor: nc } = await list({ prefix: 'transfers/', limit: 100, cursor: transferCursor });
+      transferCursor = nc;
+
+      const orphanUrls = [];
+      for (const b of blobs) {
+        const match = b.pathname.match(/^transfers\/([A-Z2-9]{6})\//);
+        if (match && !activeCodes.has(match[1])) {
+          orphanUrls.push(b.url);
+        }
+      }
+
+      if (orphanUrls.length) {
+        await del(orphanUrls);
+        orphaned += orphanUrls.length;
+      }
+    } while (transferCursor);
+
+    if (orphaned > 0) {
+      console.log(`[cleanup] ${orphaned} chunk(s) orphelin(s) supprimé(s)`);
+    }
+
+    const message = `Nettoyage terminé : ${deleted} supprimé(s), ${orphaned} orphelin(s), ${errors} erreur(s)`;
     console.log(`[cleanup] ${message}`);
-    return res.json({ deleted, errors, message });
+    return res.json({ deleted, orphaned, errors, message });
   } catch (err) {
     console.error('[cleanup] Erreur critique :', err.message);
     return res.status(500).json({ error: 'Erreur interne lors du nettoyage' });

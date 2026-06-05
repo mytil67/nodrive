@@ -85,8 +85,23 @@ function getClientIp(request) {
 
 export default function middleware(request) {
   const ip       = getClientIp(request);
-  const pathname = new URL(request.url).pathname;
+  const url      = new URL(request.url);
+  const pathname = url.pathname;
+  const origin   = url.origin;
 
+  // ── CORS : bloquer les requêtes cross-origin vers l'API ──
+  const requestOrigin = request.headers.get('origin');
+  if (requestOrigin && requestOrigin !== origin) {
+    return new Response(
+      JSON.stringify({ error: 'Requête cross-origin non autorisée' }),
+      {
+        status: 403,
+        headers: { 'Content-Type': 'application/json' },
+      }
+    );
+  }
+
+  // ── Rate limiting ──
   const { allowed, remaining, resetAfter } = checkRateLimit(ip, pathname);
 
   if (!allowed) {
