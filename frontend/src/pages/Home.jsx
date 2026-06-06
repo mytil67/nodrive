@@ -66,7 +66,7 @@ export default function Home() {
             <span className="action-card__title">{t('home.send')}</span>
             <span className="action-card__desc">{t('home.send.desc')}</span>
           </span>
-          <span className="action-card__arrow" aria-hidden="true">-></span>
+          <span className="action-card__arrow" aria-hidden="true">{'→'}</span>
         </Link>
 
         <Link to="/receive" className="action-card action-card--secondary">
@@ -79,7 +79,7 @@ export default function Home() {
             <span className="action-card__title">{t('home.receive')}</span>
             <span className="action-card__desc">{t('home.receive.desc')}</span>
           </span>
-          <span className="action-card__arrow" aria-hidden="true">-></span>
+          <span className="action-card__arrow" aria-hidden="true">{'→'}</span>
         </Link>
       </div>
 
