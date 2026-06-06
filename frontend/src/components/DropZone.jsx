@@ -58,6 +58,7 @@ export default function DropZone({ files, onFiles }) {
               </svg>
             </span>
             <p className="dropzone__text">{dragging ? t('drop.release') : t('drop.drag')}</p>
+            <p className="dropzone__sub-multi">{t('drop.drag.sub')}</p>
             <p className="dropzone__sub">{t('drop.or')}<span className="dropzone__browse">{t('drop.browse')}</span></p>
           </>
         ) : (

@@ -367,6 +367,12 @@ a:hover {
   text-decoration: underline;
   cursor: pointer;
 }
+.dropzone__sub-multi {
+  font-size: 0.78rem;
+  color: var(--color-primary);
+  font-weight: 500;
+  opacity: 0.8;
+}
 .dropzone__sub {
   font-size: 0.8rem;
   color: var(--color-muted);

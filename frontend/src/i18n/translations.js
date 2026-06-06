@@ -2,17 +2,19 @@ export const translations = {
   fr: {
     // Home
     'home.eyebrow': 'Transfert de fichiers',
-    'home.subtitle': "Envoyez un fichier d'une machine à une autre.\nUn code. Un mot de passe. C'est tout.",
-    'home.send': 'Envoyer un fichier',
+    'home.subtitle': "Envoyez vos fichiers d'une machine à une autre.\nUn code. Un mot de passe. C'est tout.",
+    'home.send': 'Envoyer des fichiers',
     'home.send.desc': 'Chiffrer et partager en quelques secondes',
-    'home.receive': 'Recevoir un fichier',
+    'home.receive': 'Recevoir des fichiers',
     'home.receive.desc': 'Entrez le code et le mot de passe',
     'home.feature.aes': 'Chiffré AES-256',
-    'home.feature.aes.desc': 'Le fichier est chiffré dans votre navigateur avant envoi',
+    'home.feature.aes.desc': 'Chiffré dans votre navigateur avant envoi',
+    'home.feature.multi': 'Multi-fichier',
+    'home.feature.multi.desc': 'Envoyez plusieurs fichiers en un seul transfert',
     'home.feature.expiry': 'Usage unique',
-    'home.feature.expiry.desc': 'Les fichiers sont supprimés dès le premier téléchargement',
+    'home.feature.expiry.desc': 'Supprimé dès le premier téléchargement',
     'home.feature.noaccount': 'Sans compte',
-    'home.feature.noaccount.desc': 'Aucune inscription, aucune installation requise',
+    'home.feature.noaccount.desc': 'Aucune inscription requise',
     'home.features.aria': 'Caractéristiques',
 
     // Send
@@ -81,7 +83,8 @@ export const translations = {
     // DropZone
     'drop.aria': 'Zone de dépôt — cliquez ou glissez des fichiers',
     'drop.release': 'Relâchez pour déposer',
-    'drop.drag': 'Glissez des fichiers ici',
+    'drop.drag': 'Glissez vos fichiers ici',
+    'drop.drag.sub': 'Un ou plusieurs fichiers',
     'drop.or': 'ou ',
     'drop.browse': 'parcourir',
     'drop.change': 'Cliquez pour changer',
@@ -102,17 +105,19 @@ export const translations = {
   en: {
     // Home
     'home.eyebrow': 'File transfer',
-    'home.subtitle': "Send a file from one machine to another.\nA code. A password. That's it.",
-    'home.send': 'Send a file',
+    'home.subtitle': "Send your files from one machine to another.\nA code. A password. That's it.",
+    'home.send': 'Send files',
     'home.send.desc': 'Encrypt and share in seconds',
-    'home.receive': 'Receive a file',
+    'home.receive': 'Receive files',
     'home.receive.desc': 'Enter the code and password',
     'home.feature.aes': 'AES-256 encrypted',
-    'home.feature.aes.desc': 'The file is encrypted in your browser before upload',
+    'home.feature.aes.desc': 'Encrypted in your browser before upload',
+    'home.feature.multi': 'Multi-file',
+    'home.feature.multi.desc': 'Send multiple files in a single transfer',
     'home.feature.expiry': 'Single use',
-    'home.feature.expiry.desc': 'Files are deleted after the first download',
+    'home.feature.expiry.desc': 'Deleted after the first download',
     'home.feature.noaccount': 'No account',
-    'home.feature.noaccount.desc': 'No sign-up, no install required',
+    'home.feature.noaccount.desc': 'No sign-up required',
     'home.features.aria': 'Features',
 
     // Send
@@ -181,7 +186,8 @@ export const translations = {
     // DropZone
     'drop.aria': 'Drop zone — click or drag files',
     'drop.release': 'Release to drop',
-    'drop.drag': 'Drag files here',
+    'drop.drag': 'Drag your files here',
+    'drop.drag.sub': 'One or multiple files',
     'drop.or': 'or ',
     'drop.browse': 'browse',
     'drop.change': 'Click to change',
