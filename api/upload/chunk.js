@@ -23,17 +23,30 @@ const MAX_FILE_SIZE_MB = parseInt(process.env.MAX_FILE_SIZE_MB || '25', 10);
 const EXPIRATION_HOURS = parseInt(process.env.EXPIRATION_HOURS || '24', 10);
 const MAX_DOWNLOADS    = parseInt(process.env.MAX_DOWNLOADS    || '1',  10);
 const MAX_CHUNK_BYTES  = 4 * 1024 * 1024;
+const MAX_FILES        = 50;
+const MAX_CHUNKS_PER_FILE = 100;
 
 const CODE_REGEX = /^[A-Z2-9]{6}$/;
 const SALT_REGEX = /^[0-9a-f]{32}$/;
 
 function sanitizeFilename(name) {
-  return String(name)
-    .replace(/\0/g, '')
-    .replace(/.*[\\/]/, '')
-    .replace(/[^a-zA-Z0-9.\-_ ]/g, '_')
-    .substring(0, 200)
-    .trim() || 'fichier';
+  let sanitized = String(name)
+    .normalize('NFC')
+    .trim();
+
+  // Supprimer les séparateurs de chemin
+  sanitized = sanitized.replace(/[\\/]/g, '_');
+
+  // Supprimer les caractères de contrôle et null bytes
+  sanitized = sanitized.replace(/[\x00-\x1F\x7F]/g, '');
+
+  // Ne garder que les caractères sûrs (alphanum, points, tirets, underscores, espaces, unicode)
+  sanitized = sanitized.replace(/[^a-zA-Z0-9._\-\u0080-\uFFFF ]/g, '_');
+
+  // Tronquer
+  sanitized = sanitized.substring(0, 200).trim();
+
+  return sanitized || 'fichier';
 }
 
 // Désactiver le body parser Vercel — on lit le body binaire manuellement
@@ -60,10 +73,10 @@ export default async function handler(req, res) {
   if (!CODE_REGEX.test(code)) {
     return res.status(400).json({ error: 'Code invalide' });
   }
-  if (chunkIndex < 0 || chunkTotal < 1 || chunkIndex >= chunkTotal) {
+  if (chunkIndex < 0 || chunkTotal < 1 || chunkIndex >= chunkTotal || chunkTotal > MAX_CHUNKS_PER_FILE) {
     return res.status(400).json({ error: 'Index de chunk invalide' });
   }
-  if (fileIndex < 0 || fileTotal < 1 || fileIndex >= fileTotal) {
+  if (fileIndex < 0 || fileTotal < 1 || fileIndex >= fileTotal || fileTotal > MAX_FILES) {
     return res.status(400).json({ error: 'Index de fichier invalide' });
   }
 
@@ -95,7 +108,7 @@ export default async function handler(req, res) {
       access:          'private',
       contentType:     'application/octet-stream',
       addRandomSuffix: false,
-      allowOverwrite:  true,
+      allowOverwrite:  false,
     });
 
     // Dernier chunk du dernier fichier → créer les métadonnées
@@ -112,12 +125,21 @@ export default async function handler(req, res) {
         if (!Array.isArray(fileMetas) || fileMetas.length !== fileTotal) {
           throw new Error('invalid');
         }
+        // Validation stricte de chaque fichier
+        for (const meta of fileMetas) {
+          if (typeof meta.size !== 'number' || meta.size < 0 || !Number.isFinite(meta.size)) {
+            throw new Error('invalid size');
+          }
+          if (typeof meta.name !== 'string' || meta.name.length === 0 || meta.name.length > 500) {
+            throw new Error('invalid name');
+          }
+        }
       } catch {
         return res.status(400).json({ error: 'Métadonnées des fichiers invalides' });
       }
 
       // Valider la taille totale
-      const totalSize = fileMetas.reduce((s, f) => s + (f.size || 0), 0);
+      const totalSize = fileMetas.reduce((s, f) => s + f.size, 0);
       if (!totalSize || totalSize > MAX_FILE_SIZE_MB * 1024 * 1024) {
         return res.status(400).json({ error: `Taille totale trop grande (max ${MAX_FILE_SIZE_MB} Mo)` });
       }
@@ -131,8 +153,8 @@ export default async function handler(req, res) {
         const prefix = `f${String(f).padStart(3, '0')}-chunk-`;
         const fileChunks = sorted.filter(b => b.pathname.includes(prefix));
         files.push({
-          originalName: sanitizeFilename(fileMetas[f].name || ''),
-          size:         fileMetas[f].size || 0,
+          originalName: sanitizeFilename(fileMetas[f].name),
+          size:         fileMetas[f].size,
           chunkCount:   fileChunks.length,
           chunkUrls:    fileChunks.map(b => b.url),
         });
@@ -160,18 +182,17 @@ export default async function handler(req, res) {
         access:          'private',
         contentType:     'application/json',
         addRandomSuffix: false,
-        allowOverwrite:  true,
+        allowOverwrite:  false,
       });
 
-      const names = files.map(f => f.originalName).join(', ');
-      console.log(`[upload/chunk] Transfert ${code} complet — ${fileTotal} fichier(s), ${encryptedSize} bytes: ${names}`);
+      console.log(`[upload/chunk] Transfert ${code} complet — ${fileTotal} fichier(s)`);
       return res.json({ ok: true, deleteToken });
     }
 
-    return res.json({ ok: true, chunk: chunkIndex, file: fileIndex });
+    return res.json({ ok: true });
 
   } catch (err) {
-    console.error('[upload/chunk] Erreur:', err.message, err.stack);
-    return res.status(500).json({ error: `Erreur upload chunk ${chunkIndex}: ${err.message}` });
+    console.error('[upload/chunk] Erreur:', err.message);
+    return res.status(500).json({ error: 'Erreur lors du stockage' });
   }
 }

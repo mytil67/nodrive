@@ -29,8 +29,10 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: 'Configuration serveur incomplète' });
   }
 
-  const fileIndex  = req.query.file  !== undefined ? parseInt(req.query.file, 10)  : 0;
-  const chunkIndex = req.query.chunk !== undefined ? parseInt(req.query.chunk, 10) : -1;
+  const rawFile  = parseInt(req.query.file  || '0', 10);
+  const rawChunk = parseInt(req.query.chunk || '-1', 10);
+  const fileIndex  = (Number.isFinite(rawFile)  && rawFile  >= 0) ? Math.min(rawFile, 999)  : 0;
+  const chunkIndex = (Number.isFinite(rawChunk) && rawChunk >= -1) ? Math.min(rawChunk, 9999) : -1;
 
   try {
     // 1. Lecture des métadonnées
@@ -92,7 +94,7 @@ export default async function handler(req, res) {
     if (file.chunkUrls && file.chunkUrls.length > 0) {
       const ci = Math.max(0, chunkIndex);
       if (ci >= file.chunkUrls.length) {
-        return res.status(400).json({ error: `Index de chunk invalide (0-${file.chunkUrls.length - 1})` });
+        return res.status(400).json({ error: 'Index de chunk invalide' });
       }
 
       const chunkUrl = file.chunkUrls[ci];
@@ -100,13 +102,14 @@ export default async function handler(req, res) {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!chunkResponse.ok) {
-        return res.status(404).json({ error: `Chunk ${ci} introuvable` });
+        return res.status(404).json({ error: 'Chunk introuvable' });
       }
 
       const contentLength = chunkResponse.headers.get('content-length');
       res.setHeader('Content-Type', 'application/octet-stream');
       if (contentLength) res.setHeader('Content-Length', contentLength);
       res.setHeader('Cache-Control', 'no-store');
+      res.setHeader('X-Content-Type-Options', 'nosniff');
 
       const reader = chunkResponse.body.getReader();
       try {
@@ -152,6 +155,7 @@ export default async function handler(req, res) {
     if (contentLength) res.setHeader('Content-Length', contentLength);
     res.setHeader('Content-Disposition', 'attachment; filename="file.enc"');
     res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
 
     const reader = fileResponse.body.getReader();
     try {

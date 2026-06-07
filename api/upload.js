@@ -26,11 +26,14 @@ const MAX_DOWNLOADS    = parseInt(process.env.MAX_DOWNLOADS    || '1',  10);
 const CODE_REGEX = /^[A-Z2-9]{6}$/;
 
 function sanitizeFilename(name) {
-  return String(name)
-    .replace(/.*[\\/]/, '')
-    .replace(/[^a-zA-Z0-9.\-_ ]/g, '_')
-    .substring(0, 200)
-    .trim() || 'fichier';
+  let sanitized = String(name)
+    .normalize('NFC')
+    .trim();
+  sanitized = sanitized.replace(/[\\/]/g, '_');
+  sanitized = sanitized.replace(/[\x00-\x1F\x7F]/g, '');
+  sanitized = sanitized.replace(/[^a-zA-Z0-9._\-\u0080-\uFFFF ]/g, '_');
+  sanitized = sanitized.substring(0, 200).trim();
+  return sanitized || 'fichier';
 }
 
 // Désactiver le body parser Vercel — on lit le body binaire manuellement
