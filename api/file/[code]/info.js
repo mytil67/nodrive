@@ -10,6 +10,9 @@ import { list } from '@vercel/blob';
 const BLOB_TOKEN = () => process.env.BLOB_READ_WRITE_TOKEN;
 const CODE_REGEX = /^[A-Z2-9]{6}$/;
 
+// Délai artificiel sur les codes invalides — ralentit l'énumération brute-force
+const delay = (ms) => new Promise(r => setTimeout(r, ms));
+
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
     return res.status(405).json({ error: 'Méthode non autorisée' });
@@ -17,12 +20,14 @@ export default async function handler(req, res) {
 
   const code = (req.query.code || '').toString().toUpperCase();
   if (!CODE_REGEX.test(code)) {
+    await delay(1000);
     return res.status(400).json({ error: 'Format de code invalide' });
   }
 
   try {
     const { blobs } = await list({ prefix: `metadata/${code}.json`, limit: 1 });
     if (!blobs.length) {
+      await delay(1000);
       return res.status(404).json({ error: 'Code invalide ou expiré' });
     }
 

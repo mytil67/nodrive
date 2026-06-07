@@ -5,14 +5,11 @@
  *
  * Responsabilités :
  *  1. Rate limiting in-memory par IP (best-effort — par instance edge)
- *     Limites : 5 req/min sur /api/upload, 60 req/min sur les autres endpoints
- *  2. Header X-RateLimit-Remaining pour le diagnostic
+ *  2. Détection de brute-force sur les codes de transfert (anti-énumération)
+ *  3. Blocage des requêtes cross-origin
+ *  4. Header X-RateLimit-Remaining pour le diagnostic
  *
- * NOTE : les security headers (CSP, X-Frame-Options, etc.) sont définis
- * dans vercel.json "headers" pour s'appliquer aussi aux assets statiques.
- *
- * Compatible Cloudflare : lit CF-Connecting-IP pour la vraie IP client
- * quand le site est proxié par Cloudflare. Fallback sur ipAddress() Vercel.
+ * Compatible Cloudflare : lit CF-Connecting-IP pour la vraie IP client.
  *
  * Limites connues :
  *  - Le cache in-memory est par instance edge (pas distribué).
@@ -23,20 +20,30 @@ import { next, ipAddress } from '@vercel/edge';
 
 // ── Configuration des limites ──────────────────────────────────────────────
 const RATE_LIMITS = {
-  '/api/upload':              { max: 5,  windowMs: 60_000 }, // 5 uploads/min (proxy + client)
-  '/api/file':                { max: 30, windowMs: 60_000 }, // 30 download+info/min
-  default:                    { max: 60, windowMs: 60_000 }, // 60 req/min autres
+  '/api/upload':              { max: 5,  windowMs: 60_000 },  // 5 uploads/min
+  '/api/file':                { max: 10, windowMs: 60_000 },  // 10 info+download/min (anti-enum)
+  default:                    { max: 60, windowMs: 60_000 },  // 60 req/min autres
 };
+
+// Après N échecs sur /api/file/*/info par IP → blocage temporaire
+const ENUM_FAIL_THRESHOLD = 8;    // 8 échecs dans la fenêtre
+const ENUM_BLOCK_DURATION = 300_000; // 5 min de blocage
 
 // ── Cache in-memory (scope module = par instance edge, éphémère) ───────────
 /** @type {Map<string, { count: number, resetAt: number }>} */
 const rlCache = new Map();
+
+/** @type {Map<string, { fails: number, resetAt: number, blockedUntil: number }>} */
+const enumCache = new Map();
 
 // Nettoyage périodique pour éviter une fuite mémoire sur les instances longues
 setInterval(() => {
   const now = Date.now();
   for (const [key, entry] of rlCache) {
     if (now > entry.resetAt) rlCache.delete(key);
+  }
+  for (const [key, entry] of enumCache) {
+    if (now > entry.blockedUntil && now > entry.resetAt) enumCache.delete(key);
   }
 }, 120_000);
 
@@ -67,6 +74,34 @@ function checkRateLimit(ip, pathname) {
   };
 }
 
+/**
+ * Vérifie si l'IP est bloquée pour brute-force de codes.
+ * Retourne true si la requête doit être bloquée.
+ */
+function isEnumBlocked(ip) {
+  const entry = enumCache.get(ip);
+  if (!entry) return false;
+  if (Date.now() < entry.blockedUntil) return true;
+  return false;
+}
+
+/**
+ * Enregistre un échec de lookup de code pour cette IP.
+ * Appelé quand le endpoint info ou download retourne 404.
+ */
+function recordEnumFailure(ip) {
+  const now = Date.now();
+  let entry = enumCache.get(ip);
+  if (!entry || now > entry.resetAt) {
+    entry = { fails: 0, resetAt: now + 60_000, blockedUntil: 0 };
+  }
+  entry.fails++;
+  if (entry.fails >= ENUM_FAIL_THRESHOLD) {
+    entry.blockedUntil = now + ENUM_BLOCK_DURATION;
+  }
+  enumCache.set(ip, entry);
+}
+
 // ── Matcher : uniquement les routes /api/* ─────────────────────────────────
 export const config = {
   matcher: '/api/:path*',
@@ -83,7 +118,7 @@ function getClientIp(request) {
       || '0.0.0.0';
 }
 
-export default function middleware(request) {
+export default async function middleware(request) {
   const ip       = getClientIp(request);
   const url      = new URL(request.url);
   const pathname = url.pathname;
@@ -97,6 +132,21 @@ export default function middleware(request) {
       {
         status: 403,
         headers: { 'Content-Type': 'application/json' },
+      }
+    );
+  }
+
+  // ── Anti-énumération : blocage si trop d'échecs ──
+  const isFileEndpoint = pathname.match(/^\/api\/file\/[^/]+\/(info|download)/);
+  if (isFileEndpoint && isEnumBlocked(ip)) {
+    return new Response(
+      JSON.stringify({ error: 'Trop de tentatives — réessayez plus tard.' }),
+      {
+        status: 429,
+        headers: {
+          'Content-Type': 'application/json',
+          'Retry-After':  '300',
+        },
       }
     );
   }
@@ -118,7 +168,14 @@ export default function middleware(request) {
     );
   }
 
-  const response = next();
+  // ── Exécuter le endpoint ──
+  const response = await next();
   response.headers.set('X-RateLimit-Remaining', String(remaining));
+
+  // ── Traquer les échecs pour l'anti-énumération ──
+  if (isFileEndpoint && (response.status === 404 || response.status === 410)) {
+    recordEnumFailure(ip);
+  }
+
   return response;
 }
