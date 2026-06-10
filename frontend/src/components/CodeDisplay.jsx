@@ -7,9 +7,10 @@ import { useI18n } from '../i18n/I18nContext.jsx';
 
 export default function CodeDisplay({ code, passphrase, deleteToken, fileCount }) {
   const { t } = useI18n();
-  const [copiedWhat,   setCopiedWhat]   = useState(null);
-  const [cancelStatus, setCancelStatus] = useState('idle');
-  const [cancelError,  setCancelError]  = useState('');
+  const [copiedWhat,    setCopiedWhat]    = useState(null);
+  const [cancelStatus,  setCancelStatus]  = useState('idle');
+  const [cancelError,   setCancelError]   = useState('');
+  const [showConfirm,   setShowConfirm]   = useState(false);
 
   const receiveUrl = `${window.location.origin}/receive/${code}`;
   const qrDataUrl  = useMemo(() => {
@@ -25,9 +26,13 @@ export default function CodeDisplay({ code, passphrase, deleteToken, fileCount }
     } catch {}
   }
 
-  async function handleCancel() {
+  function requestCancel() {
     if (!deleteToken || cancelStatus === 'loading') return;
-    if (!window.confirm(t('code.cancel.confirm'))) return;
+    setShowConfirm(true);
+  }
+
+  async function confirmCancel() {
+    setShowConfirm(false);
     setCancelStatus('loading');
     try {
       await cancelTransfer(code, deleteToken);
@@ -85,13 +90,29 @@ export default function CodeDisplay({ code, passphrase, deleteToken, fileCount }
           {cancelStatus === 'error' && (
             <p className="code-display__cancel-error">{cancelError}</p>
           )}
-          <button
-            className="btn btn--cancel"
-            onClick={handleCancel}
-            disabled={cancelStatus === 'loading'}
-          >
-            {cancelStatus === 'loading' ? t('code.cancelling') : t('code.cancel')}
-          </button>
+
+          {showConfirm ? (
+            <div className="confirm-dialog fade-in" role="alertdialog" aria-labelledby="cancel-title">
+              <p id="cancel-title" className="confirm-dialog__title">{t('code.cancel.title')}</p>
+              <p className="confirm-dialog__body">{t('code.cancel.body')}</p>
+              <div className="confirm-dialog__actions">
+                <button className="btn btn--cancel" onClick={confirmCancel}>
+                  {t('code.cancel.yes')}
+                </button>
+                <button className="btn btn--secondary" onClick={() => setShowConfirm(false)} autoFocus>
+                  {t('code.cancel.no')}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button
+              className="btn btn--cancel"
+              onClick={requestCancel}
+              disabled={cancelStatus === 'loading'}
+            >
+              {cancelStatus === 'loading' ? t('code.cancelling') : t('code.cancel')}
+            </button>
+          )}
         </div>
       )}
     </div>

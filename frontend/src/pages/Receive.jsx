@@ -35,7 +35,17 @@ export default function Receive() {
       setInputCode(normalized);
       setStatus('ready');
     } catch (err) {
-      setError(err.message);
+      // Map server errors to user-friendly messages
+      const msg = err.message || '';
+      if (msg.includes('400') || msg.includes('invalide')) {
+        setError(t('receive.error.invalid'));
+      } else if (msg.includes('410') || msg.includes('expiré') || msg.includes('expired')) {
+        setError(t('receive.error.expired'));
+      } else if (msg.includes('404') || msg.includes('introuvable') || msg.includes('not found')) {
+        setError(t('receive.error.notfound'));
+      } else {
+        setError(msg);
+      }
       setStatus('error');
     }
   }
@@ -180,11 +190,22 @@ export default function Receive() {
   }
 
   const showInput = status === 'idle' || status === 'loading' || status === 'error';
-  const timeLocale = lang === 'fr' ? 'fr-FR' : 'en-GB';
 
   // Calculs multi-fichier
   const totalSize = fileInfo?.files?.reduce((s, f) => s + f.size, 0) || 0;
   const fileCount = fileInfo?.files?.length || 0;
+
+  // Temps restant en format lisible
+  function formatRemaining() {
+    if (!fileInfo?.expiresAt) return '';
+    const diff = fileInfo.expiresAt - Date.now();
+    if (diff <= 0) return lang === 'fr' ? 'expiré' : 'expired';
+    const mins = Math.ceil(diff / 60_000);
+    if (mins < 60) return `${mins} min`;
+    const h = Math.floor(mins / 60);
+    const m = mins % 60;
+    return m > 0 ? `${h} h ${m} min` : `${h} h`;
+  }
 
   return (
     <main className="page">
@@ -227,12 +248,7 @@ export default function Receive() {
             {fileCount === 1 ? (
               <>
                 <p className="file-name">{fileInfo.files[0].originalName}</p>
-                <p className="file-meta">
-                  {formatSize(fileInfo.files[0].size)}&nbsp;·&nbsp;{t('receive.expires')}&nbsp;
-                  {new Date(fileInfo.expiresAt).toLocaleTimeString(timeLocale, {
-                    hour: '2-digit', minute: '2-digit',
-                  })}
-                </p>
+                <p className="file-meta">{formatSize(fileInfo.files[0].size)}</p>
               </>
             ) : (
               <>
@@ -247,14 +263,13 @@ export default function Receive() {
                     </li>
                   ))}
                 </ul>
-                <p className="file-meta">
-                  {formatSize(totalSize)}&nbsp;·&nbsp;{t('receive.expires')}&nbsp;
-                  {new Date(fileInfo.expiresAt).toLocaleTimeString(timeLocale, {
-                    hour: '2-digit', minute: '2-digit',
-                  })}
-                </p>
+                <p className="file-meta">{formatSize(totalSize)}</p>
               </>
             )}
+            <p className="file-expiry-info">
+              <span className="file-expiry-info__single">{t('receive.expires.single')}</span>
+              <span className="file-expiry-info__time">{t('receive.expires.time', { remaining: formatRemaining() })}</span>
+            </p>
           </div>
 
           <div className="passphrase-field">
@@ -268,6 +283,7 @@ export default function Receive() {
               className="code-input"
               autoComplete="off"
               autoFocus
+              aria-label={t('receive.password.aria')}
               onKeyDown={(e) => e.key === 'Enter' && passphrase.trim() && handleDownload()}
             />
           </div>
@@ -314,6 +330,9 @@ export default function Receive() {
           </div>
           <p className="send-progress-card__title">
             {fileCount > 1 ? t('receive.success.multi', { count: fileCount }) : t('receive.success')}
+          </p>
+          <p className="send-progress-card__sub send-progress-card__sub--success">
+            {fileCount > 1 ? t('receive.success.multi.sub') : t('receive.success.sub')}
           </p>
           <button className="btn btn--secondary" onClick={reset}>
             {t('receive.again')}

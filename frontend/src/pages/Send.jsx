@@ -140,7 +140,17 @@ export default function Send() {
                 autoComplete="off"
                 aria-label={t('send.passphrase.aria')}
               />
-              <p className="send-step__hint">{t('send.hint')}</p>
+              <p className="send-step__hint">
+                {passphrase.length > 0 && passphrase.length < 6
+                  ? <span className="send-step__count">{t('send.hint.count', { count: passphrase.length })}</span>
+                  : null
+                }
+                {passphrase.length >= 6
+                  ? <span className="send-step__count send-step__count--ok">&#x2713;</span>
+                  : null
+                }
+                {' '}{t('send.hint')}
+              </p>
             </div>
           </div>
 

@@ -1099,3 +1099,81 @@ a:hover {
   color: var(--color-primary);
   border-color: var(--color-primary);
 }
+
+/* ---- File expiry info (Receive page) ---- */
+.file-expiry-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  margin-top: 0.75rem;
+  padding: 0.6rem 0.85rem;
+  background: rgba(91, 138, 240, 0.06);
+  border: 1px solid rgba(91, 138, 240, 0.15);
+  border-radius: var(--radius-sm);
+  font-size: 0.8rem;
+  color: var(--color-muted);
+  text-align: center;
+}
+.file-expiry-info__single {
+  font-weight: 600;
+  color: var(--color-text);
+}
+.file-expiry-info__time {
+  font-size: 0.75rem;
+}
+
+/* ---- Success sub-message ---- */
+.send-progress-card__sub--success {
+  color: var(--color-success, #4caf82);
+  font-size: 0.82rem;
+}
+
+/* ---- Password character count ---- */
+.send-step__count {
+  display: inline-block;
+  font-weight: 600;
+  font-size: 0.78rem;
+  color: var(--color-muted);
+  margin-right: 0.35rem;
+}
+.send-step__count--ok {
+  color: var(--color-success, #4caf82);
+}
+
+/* ---- Confirm dialog (inline) ---- */
+.confirm-dialog {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 1.25rem;
+  text-align: center;
+}
+.confirm-dialog__title {
+  font-weight: 700;
+  font-size: 0.95rem;
+  margin-bottom: 0.3rem;
+}
+.confirm-dialog__body {
+  font-size: 0.82rem;
+  color: var(--color-muted);
+  margin-bottom: 1rem;
+}
+.confirm-dialog__actions {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: center;
+}
+.confirm-dialog__actions .btn {
+  flex: 1;
+  max-width: 140px;
+}
+
+/* ---- Focus visible for interactive elements ---- */
+.file-list__remove:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+.btn:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
