@@ -88,9 +88,18 @@ function fmtSize(bytes) {
 const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
 function generateCode() {
-  const bytes = new Uint8Array(6);
-  getRandomValues(bytes);
-  return Array.from(bytes).map((b) => ALPHABET[b % ALPHABET.length]).join('');
+  const limit = 256 - (256 % ALPHABET.length); // 248 — rejection sampling
+  const result = [];
+  while (result.length < 6) {
+    const bytes = new Uint8Array(8);
+    getRandomValues(bytes);
+    for (const b of bytes) {
+      if (b < limit && result.length < 6) {
+        result.push(ALPHABET[b % ALPHABET.length]);
+      }
+    }
+  }
+  return result.join('');
 }
 
 function generateSalt() {
@@ -152,21 +161,42 @@ async function cmdSend({ target, password, url }) {
   const encrypted = await encryptBuffer(fileBuffer, key);
   process.stdout.write('✓\n');
 
-  process.stdout.write(`Envoi (${fmtSize(encrypted.length)})… `);
-  const res = await fetch(`${url}/api/upload`, {
-    method:  'POST',
-    headers: {
-      'Content-Type': 'application/octet-stream',
-      'x-blob-code':  code,
-      'x-blob-name':  encodeURIComponent(fileName),
-      'x-blob-size':  String(fileSize),
-      'x-blob-salt':  salt,
-    },
-    body: encrypted,
-  });
+  // Upload par chunks de 3.5 Mo (comme le frontend)
+  const CHUNK_SIZE = 3.5 * 1024 * 1024;
+  const chunkTotal = Math.max(1, Math.ceil(encrypted.length / CHUNK_SIZE));
 
-  const body = await res.json().catch(() => ({}));
-  if (!res.ok) { process.stdout.write('\n'); console.error(`Erreur : ${body.error || res.status}`); process.exit(1); }
+  process.stdout.write(`Envoi (${fmtSize(encrypted.length)}, ${chunkTotal} chunk${chunkTotal > 1 ? 's' : ''})… `);
+
+  let deleteToken;
+  for (let ci = 0; ci < chunkTotal; ci++) {
+    const start = ci * CHUNK_SIZE;
+    const end   = Math.min(start + CHUNK_SIZE, encrypted.length);
+    const chunk = encrypted.slice(start, end);
+
+    const isLast = (ci === chunkTotal - 1);
+    const headers = {
+      'Content-Type':  'application/octet-stream',
+      'x-blob-code':   code,
+      'x-chunk-index':  String(ci),
+      'x-chunk-total':  String(chunkTotal),
+      'x-file-index':   '0',
+      'x-file-total':   '1',
+    };
+    if (isLast) {
+      headers['x-blob-salt']  = salt;
+      headers['x-blob-files'] = JSON.stringify([{ name: fileName, size: fileSize }]);
+    }
+
+    const res = await fetch(`${url}/api/upload/chunk`, {
+      method: 'POST',
+      headers,
+      body: chunk,
+    });
+
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) { process.stdout.write('\n'); console.error(`Erreur chunk ${ci} : ${body.error || res.status}`); process.exit(1); }
+    if (body.deleteToken) deleteToken = body.deleteToken;
+  }
   process.stdout.write('✓\n');
 
   const divider = '─'.repeat(44);
@@ -174,8 +204,8 @@ async function cmdSend({ target, password, url }) {
   console.log(`  Fichier       : ${fileName} (${fmtSize(fileSize)})`);
   console.log(`  Code          : ${code}`);
   console.log(`  Mot de passe  : ${password}`);
-  if (body.deleteToken) {
-    console.log(`  Delete token  : ${body.deleteToken}`);
+  if (deleteToken) {
+    console.log(`  Delete token  : ${deleteToken}`);
   }
   console.log(divider);
   console.log(`\nSur l'autre machine :\n  nodrive receive ${code} -p "${password}"${url !== DEFAULT_URL ? ` --url ${url}` : ''}\n`);
@@ -194,29 +224,64 @@ async function cmdReceive({ target, password, output, url }) {
   const info    = await infoRes.json().catch(() => ({}));
   if (!infoRes.ok) { process.stdout.write('\n'); console.error(`Erreur : ${info.error || infoRes.status}`); process.exit(1); }
   process.stdout.write('✓\n');
-  console.log(`  Fichier : ${info.originalName}  (${fmtSize(info.size)})`);
+
+  // Multi-fichier (v0.3.x) ou single-file (ancien format)
+  const files = info.files || [{ originalName: info.originalName, size: info.size, chunkCount: info.chunkCount || 0 }];
+  const fileCount = files.length;
+
+  for (const f of files) {
+    console.log(`  ${f.originalName}  (${fmtSize(f.size)})`);
+  }
 
   if (!password) password = await prompt('Mot de passe : ');
 
-  process.stdout.write('Téléchargement… ');
-  const dlRes = await fetch(`${url}/api/file/${code}/download`);
-  if (!dlRes.ok) {
-    const b = await dlRes.json().catch(() => ({}));
-    process.stdout.write('\n'); console.error(`Erreur : ${b.error || dlRes.status}`); process.exit(1);
-  }
-  const encrypted = new Uint8Array(await dlRes.arrayBuffer());
-  process.stdout.write('✓\n');
-
-  process.stdout.write('Déchiffrement… ');
   const key = await deriveKey(password, info.salt, 'decrypt');
-  let decrypted;
-  try { decrypted = await decryptBuffer(encrypted, key); }
-  catch (err) { process.stdout.write('\n'); console.error(`Erreur : ${err.message}`); process.exit(1); }
-  process.stdout.write('✓\n');
+  const outDir = resolve(output);
 
-  const outputPath = join(resolve(output), info.originalName);
-  writeFileSync(outputPath, Buffer.from(decrypted));
-  console.log(`\nFichier sauvegardé : ${outputPath}\n`);
+  for (let fi = 0; fi < fileCount; fi++) {
+    const file = files[fi];
+    const label = fileCount > 1 ? ` [${fi + 1}/${fileCount}]` : '';
+    process.stdout.write(`Téléchargement${label}… `);
+
+    let encrypted;
+    if (file.chunkCount > 0) {
+      // Format chunked — télécharger tous les chunks et concaténer
+      const chunks = [];
+      for (let ci = 0; ci < file.chunkCount; ci++) {
+        const dlRes = await fetch(`${url}/api/file/${code}/download?file=${fi}&chunk=${ci}`);
+        if (!dlRes.ok) {
+          const b = await dlRes.json().catch(() => ({}));
+          process.stdout.write('\n'); console.error(`Erreur : ${b.error || dlRes.status}`); process.exit(1);
+        }
+        chunks.push(new Uint8Array(await dlRes.arrayBuffer()));
+      }
+      const totalLen = chunks.reduce((s, c) => s + c.length, 0);
+      encrypted = new Uint8Array(totalLen);
+      let offset = 0;
+      for (const c of chunks) { encrypted.set(c, offset); offset += c.length; }
+    } else {
+      // Ancien format blob unique
+      const dlRes = await fetch(`${url}/api/file/${code}/download?file=${fi}&chunk=0`);
+      if (!dlRes.ok) {
+        const b = await dlRes.json().catch(() => ({}));
+        process.stdout.write('\n'); console.error(`Erreur : ${b.error || dlRes.status}`); process.exit(1);
+      }
+      encrypted = new Uint8Array(await dlRes.arrayBuffer());
+    }
+    process.stdout.write('✓\n');
+
+    process.stdout.write(`Déchiffrement${label}… `);
+    let decrypted;
+    try { decrypted = await decryptBuffer(encrypted, key); }
+    catch (err) { process.stdout.write('\n'); console.error(`Erreur : ${err.message}`); process.exit(1); }
+    process.stdout.write('✓\n');
+
+    const outputPath = join(outDir, file.originalName);
+    writeFileSync(outputPath, Buffer.from(decrypted));
+    console.log(`  → ${outputPath}`);
+  }
+
+  console.log(`\n${fileCount > 1 ? `${fileCount} fichiers sauvegardés` : 'Fichier sauvegardé'} !\n`);
 }
 
 // ── Commande : cancel ─────────────────────────────────────────────────────────

@@ -4,7 +4,7 @@
 
 ## Description
 
-Tâche planifiée exécutée quotidiennement par Vercel Cron. Agit comme **filet de sécurité** : supprime les transferts jamais téléchargés (expirés) et les chunks orphelins d'uploads échoués.
+Tâche planifiée exécutée **toutes les heures** par Vercel Cron. Agit comme **filet de sécurité** : supprime les transferts jamais téléchargés (expirés) et les chunks orphelins d'uploads échoués.
 
 > En usage normal, les fichiers sont supprimés immédiatement après le premier téléchargement (`maxDownloads=1`). Le cron ne traite que les cas résiduels.
 
@@ -16,12 +16,12 @@ Configuré dans `vercel.json` :
 {
   "crons": [{
     "path": "/api/cron/cleanup",
-    "schedule": "0 3 * * *"
+    "schedule": "0 * * * *"
   }]
 }
 ```
 
-→ Tous les jours à **3h00 UTC**.
+→ Toutes les heures, à la minute 0 (cohérent avec l'expiration de 1 h).
 
 ## Authentification
 

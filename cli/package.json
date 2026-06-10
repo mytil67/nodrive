@@ -1,6 +1,6 @@
 {
   "name": "nodrive-cli",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "CLI pour NoDrive — transfert de fichiers chiffré entre deux machines",
   "type": "module",
   "bin": {
