@@ -1,7 +1,7 @@
 {
   "name": "nodrive-frontend",
   "private": true,
-  "version": "0.3.13",
+  "version": "0.3.14",
   "description": "Frontend React + Vite pour NoDrive (Vercel)",
   "type": "module",
   "scripts": {

@@ -69,6 +69,19 @@ export async function uploadEncryptedFiles(code, encryptedFiles, salt, onProgres
 }
 
 /**
+ * Encode les métadonnées de fichiers pour un header HTTP.
+ * Les valeurs de header doivent être des ByteString (Latin-1) : un nom de
+ * fichier contenant un caractère hors Latin-1 (emoji, €, CJK…) ferait lever
+ * setRequestHeader. On encode donc le JSON en base64 sur ses octets UTF-8.
+ */
+function encodeFilesHeader(fileMetas) {
+  const bytes = new TextEncoder().encode(JSON.stringify(fileMetas));
+  let binary = '';
+  for (const b of bytes) binary += String.fromCharCode(b);
+  return btoa(binary);
+}
+
+/**
  * Envoie un chunk individuel via XHR.
  */
 function sendChunk(code, chunkData, chunkIndex, chunkTotal, fileIndex, fileTotal, salt, fileMetas) {
@@ -87,7 +100,7 @@ function sendChunk(code, chunkData, chunkIndex, chunkTotal, fileIndex, fileTotal
     // Le serveur a besoin de ces headers uniquement sur le dernier chunk du dernier fichier
     if (fileMetas) {
       xhr.setRequestHeader('x-blob-salt', salt);
-      xhr.setRequestHeader('x-blob-files', JSON.stringify(fileMetas));
+      xhr.setRequestHeader('x-blob-files', encodeFilesHeader(fileMetas));
     }
 
     xhr.addEventListener('load', () => {

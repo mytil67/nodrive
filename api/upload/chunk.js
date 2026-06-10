@@ -13,7 +13,7 @@
  *
  * Sur le dernier chunk du dernier fichier :
  *   x-blob-salt         : sel PBKDF2 256 bits hex
- *   x-blob-files        : JSON array de { name, size } pour chaque fichier
+ *   x-blob-files        : JSON array de { name, size } encodé en base64 (UTF-8)
  */
 
 import { put, list } from '@vercel/blob';
@@ -121,7 +121,12 @@ export default async function handler(req, res) {
 
       let fileMetas;
       try {
-        fileMetas = JSON.parse(filesJson);
+        // x-blob-files arrive en base64(UTF-8). Fallback JSON brut pour
+        // compat avec d'éventuels anciens clients.
+        const decoded = filesJson.trim().startsWith('[')
+          ? filesJson
+          : Buffer.from(filesJson, 'base64').toString('utf-8');
+        fileMetas = JSON.parse(decoded);
         if (!Array.isArray(fileMetas) || fileMetas.length !== fileTotal) {
           throw new Error('invalid');
         }
