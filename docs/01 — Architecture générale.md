@@ -42,7 +42,7 @@
 ```
 1. Utilisateur sélectionne fichier(s) + mot de passe
 2. Frontend génère un code à 6 caractères (rejection sampling)
-3. Frontend génère un salt (128 bits)
+3. Frontend génère un salt (256 bits)
 4. Frontend dérive la clé via PBKDF2 (passphrase + salt → AES key)
 5. Chaque fichier est chiffré (AES-256-GCM) dans le navigateur
 6. Les données chiffrées sont découpées en chunks de 3.5 Mo

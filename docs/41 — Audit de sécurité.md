@@ -1,8 +1,8 @@
 # Audit de sécurité
 
-> Audit réalisé sur le commit `dd02f5b`. 6 vulnérabilités identifiées et corrigées.
+> Audit initial sur `dd02f5b` (6 fixes). Audit complémentaire sur `135cdff`–`b693923` (6 fixes).
 
-## Corrections appliquées
+## Corrections appliquées — Round 1 (`dd02f5b`)
 
 ### 1. Divulgation d'environnement (health endpoint)
 
@@ -45,12 +45,60 @@ const limit = 256 - (256 % 31); // 248
 **Risque** : CSRF, utilisation de l'API depuis des domaines tiers
 **Fix** : Middleware Edge rejette les requêtes avec un `Origin` différent
 
+## Corrections appliquées — Round 2 (`b3b4508`)
+
+### 7. Anti-énumération de codes
+
+**Avant** : Pas de protection contre le brute-force des codes de transfert
+**Risque** : Un attaquant pouvait tester des codes en masse
+**Fix** : Tracking par IP des échecs + délai de 1 s sur codes invalides + blocage après 8 échecs (5 min)
+
+## Corrections appliquées — Round 3 (`135cdff`)
+
+### 8. Race condition sur le quota de téléchargement (CRITIQUE)
+
+**Avant** : `downloadCount` incrémenté sans verrouillage → deux requêtes concurrentes pouvaient passer
+**Risque** : Téléchargement multiple d'un fichier censé être single-use
+**Fix** : Verrouillage optimiste — re-lecture de la metadata après écriture, rejet si le compteur a changé
+
+### 9. Chunks incomplets acceptés à l'upload (CRITIQUE)
+
+**Avant** : Aucune vérification que tous les chunks attendus avaient été reçus
+**Risque** : Metadata créée pour un fichier avec des chunks manquants → données corrompues
+**Fix** : Validation de complétude — vérification des indices continus (0, 1, 2…N-1) avant finalisation
+
+### 10. Crash sur nom de fichier mal encodé (HIGH)
+
+**Avant** : `decodeURIComponent()` sans try-catch dans `/api/upload`
+**Risque** : Un header `x-blob-name` malformé (`%ZZ`) causait un crash 500
+**Fix** : Try-catch → retourne 400 proprement
+
+### 11. Timing leak sur la longueur du CRON_SECRET (HIGH)
+
+**Avant** : Check de longueur avant `timingSafeEqual` dans `/api/cron/cleanup`
+**Risque** : Un attaquant pouvait déduire la longueur du secret par timing
+**Fix** : Comparaison via HMAC-SHA256 à temps constant (longueur fixe)
+
+## Corrections appliquées — Round 4 (`b693923`)
+
+### 12. PBKDF2 200k itérations insuffisant (MEDIUM)
+
+**Avant** : 200 000 itérations PBKDF2
+**Risque** : En dessous de la recommandation NIST SP 800-132 (2024)
+**Fix** : 600 000 itérations (frontend + CLI)
+
+### 13. Sel PBKDF2 trop court (MEDIUM)
+
+**Avant** : 128 bits (16 octets)
+**Risque** : Sel inférieur à la taille de la clé AES-256
+**Fix** : 256 bits (32 octets) — regex backend mise à jour (64 hex chars)
+
 ## Vecteurs non couverts (à surveiller)
 
 | Vecteur | Statut | Note |
 |---------|--------|------|
 | Rate limiting distribué | Partiel | Par instance Edge seulement |
-| Enumération de codes | Faible risque | 31^6 = ~887M combinaisons |
+| Enumération de codes | Mitigé | Delay 1 s + blocage IP après 8 échecs |
 | Replay de chunks | À évaluer | Pas de nonce par chunk |
 | Abuse (spam de transfers) | Partiel | Rate limit upload 5/min |
 
