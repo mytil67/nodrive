@@ -8,7 +8,7 @@
 │                                                  │
 │  React (Vite)  ←→  Web Crypto API               │
 │  - Chiffrement AES-256-GCM côté client          │
-│  - PBKDF2 dérivation de clé (200k itérations)   │
+│  - PBKDF2 dérivation de clé (600k itérations)   │
 │  - Upload/download par chunks XHR               │
 └──────────────────────┬──────────────────────────┘
                        │ HTTPS

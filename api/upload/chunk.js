@@ -12,7 +12,7 @@
  *   x-file-total        : nombre total de fichiers, défaut 1
  *
  * Sur le dernier chunk du dernier fichier :
- *   x-blob-salt         : sel PBKDF2 128 bits hex
+ *   x-blob-salt         : sel PBKDF2 256 bits hex
  *   x-blob-files        : JSON array de { name, size } pour chaque fichier
  */
 
@@ -27,7 +27,7 @@ const MAX_FILES        = 50;
 const MAX_CHUNKS_PER_FILE = 100;
 
 const CODE_REGEX = /^[A-Z2-9]{6}$/;
-const SALT_REGEX = /^[0-9a-f]{32}$/;
+const SALT_REGEX = /^[0-9a-f]{64}$/;
 
 function sanitizeFilename(name) {
   let sanitized = String(name)

@@ -10,9 +10,9 @@ Tout le chiffrement se fait **dans le navigateur** via la [Web Crypto API](https
 
 | Étape | Algorithme | Paramètres |
 |-------|-----------|------------|
-| Dérivation de clé | PBKDF2 | SHA-256, 200 000 itérations |
+| Dérivation de clé | PBKDF2 | SHA-256, 600 000 itérations |
 | Chiffrement | AES-GCM | 256 bits, IV 12 octets |
-| Salt | `crypto.getRandomValues` | 128 bits (16 octets), hex |
+| Salt | `crypto.getRandomValues` | 256 bits (32 octets), hex |
 | Code transfert | `crypto.getRandomValues` | 6 caractères, rejection sampling |
 
 ## Génération du code de transfert
@@ -59,7 +59,7 @@ passphrase + salt (du serveur) → PBKDF2 → AES-256 key
 
 - Le salt est **unique par transfert** et stocké dans les métadonnées serveur
 - Le salt est **public** (envoyé avec le code) — la sécurité repose sur le mot de passe
-- 200 000 itérations PBKDF2 rendent le brute-force coûteux
+- 600 000 itérations PBKDF2 rendent le brute-force coûteux
 - AES-GCM assure à la fois la confidentialité et l'intégrité (authentification)
 - Un mauvais mot de passe produit une erreur de déchiffrement (pas de données corrompues silencieuses)
 

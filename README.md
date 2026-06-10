@@ -22,8 +22,8 @@ Aucun lien long à copier-coller. Deux informations courtes à transmettre orale
 | Mécanisme | Détail |
 |---|---|
 | **Chiffrement** | AES-256-GCM, effectué dans le navigateur (Web Crypto API) |
-| **Dérivation de clé** | PBKDF2 / SHA-256 / 200 000 itérations |
-| **Sel** | 128 bits aléatoires générés par transfert (stockés dans les métadonnées, pas secret) |
+| **Dérivation de clé** | PBKDF2 / SHA-256 / 600 000 itérations |
+| **Sel** | 256 bits aléatoires générés par transfert (stockés dans les métadonnées, pas secret) |
 | **Clé** | Jamais transmise au serveur — dérivée localement côté expéditeur et destinataire |
 | **Stockage** | Blobs privés Vercel (inaccessibles sans token serveur) |
 | **Suppression** | Automatique dès le premier téléchargement (filet de sécurité : expiration après 1 h si jamais téléchargé) |

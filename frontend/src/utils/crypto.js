@@ -39,21 +39,21 @@ export function generateTransferCode() {
 // ---------------------------------------------------------------------------
 
 /**
- * Génère un sel cryptographique aléatoire 128 bits pour PBKDF2.
+ * Génère un sel cryptographique aléatoire 256 bits pour PBKDF2.
  * Encodé en hex pour stockage dans les métadonnées (pas secret, mais unique par transfert).
- * @returns {string} — 32 caractères hex
+ * @returns {string} — 64 caractères hex
  */
 export function generateSalt() {
-  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  const bytes = crypto.getRandomValues(new Uint8Array(32));
   return Array.from(bytes).map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
 /**
- * Dérive une clé AES-GCM 256 bits depuis un mot de passe et un sel hex 128 bits.
- * PBKDF2 / SHA-256 / 200 000 itérations.
+ * Dérive une clé AES-GCM 256 bits depuis un mot de passe et un sel hex 256 bits.
+ * PBKDF2 / SHA-256 / 600 000 itérations (NIST SP 800-132, recommandation 2024).
  *
  * @param {string} passphrase - mot de passe saisi par l'utilisateur
- * @param {string} saltHex    - sel 128 bits encodé en hex (stocké dans les métadonnées)
+ * @param {string} saltHex    - sel 256 bits encodé en hex (stocké dans les métadonnées)
  * @param {'encrypt'|'decrypt'} usage
  * @returns {Promise<CryptoKey>}
  */
@@ -72,7 +72,7 @@ export async function deriveKeyFromPassphrase(passphrase, saltHex, usage = 'encr
     {
       name:       'PBKDF2',
       salt:       saltBytes,
-      iterations: 200_000,
+      iterations: 600_000,
       hash:       'SHA-256',
     },
     keyMaterial,

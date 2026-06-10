@@ -63,7 +63,7 @@ export default async function handler(req, res) {
   const sizeBytes    = parseInt(req.headers['x-blob-size'] || '0', 10);
   const salt         = req.headers['x-blob-salt'] || '';
 
-  const SALT_REGEX = /^[0-9a-f]{32}$/;
+  const SALT_REGEX = /^[0-9a-f]{64}$/;
 
   if (!CODE_REGEX.test(code)) {
     return res.status(400).json({ error: 'Code de transfert invalide' });
@@ -115,7 +115,7 @@ export default async function handler(req, res) {
       code,
       originalName:  sanitizeFilename(originalName),
       size:          sizeBytes,
-      salt,                    // sel PBKDF2 128 bits (hex) — public, pas secret
+      salt,                    // sel PBKDF2 256 bits (hex) — public, pas secret
       deleteToken,             // token 128 bits requis pour DELETE — jamais renvoyé via /info
       blobPathname:  blob.pathname,
       blobUrl:       blob.url,

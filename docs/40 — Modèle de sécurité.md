@@ -17,7 +17,7 @@ Le **mot de passe** ne quitte jamais le navigateur.
 |--------|-----------|
 | Interception réseau (MITM) | HTTPS + HSTS preload |
 | Accès serveur compromis | Chiffrement E2E côté client |
-| Brute-force mot de passe | PBKDF2 200k itérations |
+| Brute-force mot de passe | PBKDF2 600k itérations |
 | Timing attack sur deleteToken | `crypto.timingSafeEqual` |
 | Modulo bias (code transfert) | Rejection sampling |
 | Upload malveillant sur code existant | Vérification 409 Conflict |

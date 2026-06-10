@@ -20,8 +20,8 @@ No long URL to copy-paste. Two short pieces of information to share verbally or 
 | Mechanism | Detail |
 |---|---|
 | **Encryption** | AES-256-GCM, performed in the browser (Web Crypto API) |
-| **Key derivation** | PBKDF2 / SHA-256 / 200,000 iterations |
-| **Salt** | 128-bit random per transfer (stored in metadata, not secret) |
+| **Key derivation** | PBKDF2 / SHA-256 / 600,000 iterations |
+| **Salt** | 256-bit random per transfer (stored in metadata, not secret) |
 | **Key** | Never sent to the server — derived locally on both sender and recipient side |
 | **Storage** | Private Vercel Blobs (inaccessible without server token) |
 | **Deletion** | Automatic after first download (safety net: 1-hour expiration if never downloaded) |

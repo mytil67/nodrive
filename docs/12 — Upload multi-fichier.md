@@ -8,7 +8,7 @@ L'upload supporte l'envoi de **plusieurs fichiers** dans un seul transfert. Chaq
 
 ```
 1. Utilisateur sélectionne N fichiers via DropZone
-2. Génération : code (6 chars), salt (128 bits), clé AES (PBKDF2)
+2. Génération : code (6 chars), salt (256 bits), clé AES (PBKDF2)
 3. Pour chaque fichier i (0..N-1) :
    a. file.arrayBuffer() → AES-GCM encrypt → encryptedData
    b. Découpage en chunks de 3.5 Mo

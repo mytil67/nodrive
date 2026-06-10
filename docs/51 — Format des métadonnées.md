@@ -7,7 +7,7 @@
 ```json
 {
   "code": "AB3K7P",
-  "salt": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4",
+  "salt": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4",
   "deleteToken": "deadbeef12345678deadbeef12345678",
   "files": [
     {
@@ -43,7 +43,7 @@
 | Champ | Type | Description |
 |-------|------|-------------|
 | `code` | string | Code transfert 6 chars |
-| `salt` | string | Salt PBKDF2 (hex, 32 chars) |
+| `salt` | string | Salt PBKDF2 (hex, 64 chars) |
 | `deleteToken` | string | Token suppression (hex, 32 chars) |
 | `files` | array | Liste des fichiers |
 | `files[].originalName` | string | Nom original du fichier |

@@ -94,7 +94,7 @@ function generateCode() {
 }
 
 function generateSalt() {
-  const bytes = new Uint8Array(16);
+  const bytes = new Uint8Array(32);
   getRandomValues(bytes);
   return Array.from(bytes).map((b) => b.toString(16).padStart(2, '0')).join('');
 }
@@ -104,7 +104,7 @@ async function deriveKey(passphrase, saltHex, usage) {
   const saltBytes = new Uint8Array(saltHex.match(/.{2}/g).map((b) => parseInt(b, 16)));
   const material  = await subtle.importKey('raw', enc.encode(passphrase), 'PBKDF2', false, ['deriveKey']);
   return subtle.deriveKey(
-    { name: 'PBKDF2', salt: saltBytes, iterations: 200_000, hash: 'SHA-256' },
+    { name: 'PBKDF2', salt: saltBytes, iterations: 600_000, hash: 'SHA-256' },
     material,
     { name: 'AES-GCM', length: 256 },
     false,
