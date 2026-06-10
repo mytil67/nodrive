@@ -11,19 +11,25 @@ filedrop/
 │
 ├── api/                        # Serverless Functions Vercel
 │   ├── health.js               # GET /api/health
-│   ├── upload.js               # POST /api/upload (legacy, bodyParser: false)
 │   ├── upload/
-│   │   └── chunk.js            # POST /api/upload/chunk (multi-fichier)
+│   │   └── chunk.js            # POST /api/upload/chunk (multi-fichier, chunked)
 │   ├── file/[code]/
 │   │   ├── info.js             # GET /api/file/:code/info
 │   │   ├── download.js         # GET /api/file/:code/download?file=N&chunk=N
 │   │   └── delete.js           # POST /api/file/:code/delete
 │   └── cron/
-│       └── cleanup.js          # GET /api/cron/cleanup (cron quotidien)
+│       └── cleanup.js          # GET /api/cron/cleanup (cron toutes les heures)
 │
-├── cli/                        # CLI tool (expérimental)
+├── cli/                        # CLI tool (v2.0.0)
 │   ├── nodrive.js
 │   └── package.json
+│
+├── tests/                     # Tests Vitest
+│   ├── crypto.test.js         # Chiffrement round-trip, salt, code
+│   ├── sanitize.test.js       # Sanitisation noms de fichiers
+│   ├── auth.test.js           # HMAC auth cron
+│   ├── validation.test.js     # Regex, bornes index
+│   └── api.test.js            # Intégration endpoints (mock blob)
 │
 ├── frontend/                   # Application React (Vite)
 │   ├── index.html              # Template HTML
