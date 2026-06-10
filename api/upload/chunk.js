@@ -20,7 +20,7 @@ import { put, list } from '@vercel/blob';
 import { randomBytes } from 'crypto';
 
 const MAX_FILE_SIZE_MB = parseInt(process.env.MAX_FILE_SIZE_MB || '25', 10);
-const EXPIRATION_HOURS = parseInt(process.env.EXPIRATION_HOURS || '24', 10);
+const EXPIRATION_HOURS = parseInt(process.env.EXPIRATION_HOURS || '1', 10);
 const MAX_DOWNLOADS    = parseInt(process.env.MAX_DOWNLOADS    || '1',  10);
 const MAX_CHUNK_BYTES  = 4 * 1024 * 1024;
 const MAX_FILES        = 50;
@@ -152,6 +152,22 @@ export default async function handler(req, res) {
       for (let f = 0; f < fileTotal; f++) {
         const prefix = `f${String(f).padStart(3, '0')}-chunk-`;
         const fileChunks = sorted.filter(b => b.pathname.includes(prefix));
+
+        // Valider la complétude : chaque fichier doit avoir exactement le bon nombre de chunks
+        const expectedCount = (f === fileTotal - 1 && f === fileIndex)
+          ? chunkTotal   // dernier fichier : on connaît chunkTotal depuis le header
+          : fileChunks.length; // fichiers précédents : déjà uploadés
+        if (fileChunks.length < 1) {
+          return res.status(400).json({ error: `Fichier ${f} : aucun chunk reçu` });
+        }
+        // Vérifier que les indices sont continus (0, 1, 2, …, N-1)
+        for (let c = 0; c < fileChunks.length; c++) {
+          const expectedName = `f${String(f).padStart(3, '0')}-chunk-${String(c).padStart(3, '0')}.enc`;
+          if (!fileChunks[c].pathname.endsWith(expectedName)) {
+            return res.status(400).json({ error: `Fichier ${f} : chunk ${c} manquant ou dans le désordre` });
+          }
+        }
+
         files.push({
           originalName: sanitizeFilename(fileMetas[f].name),
           size:         fileMetas[f].size,

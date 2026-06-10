@@ -71,7 +71,7 @@
 
 - **Zéro connaissance** : le serveur ne voit jamais les données en clair ni le mot de passe
 - **Usage unique** : les fichiers sont supprimés dès le premier téléchargement
-- **Filet de sécurité** : si jamais téléchargé, le cron supprime après expiration (24h par défaut)
+- **Filet de sécurité** : si jamais téléchargé, le cron supprime après expiration (1 h par défaut)
 - **Pas de compte** : aucune authentification utilisateur
 
 ## Voir aussi

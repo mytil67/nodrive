@@ -82,12 +82,25 @@ export default async function handler(req, res) {
       if (meta.maxDownloads > 0 && meta.downloadCount >= meta.maxDownloads) {
         return res.status(410).json({ error: 'Nombre maximum de téléchargements atteint' });
       }
-      // Incrémenter le compteur — garder la metadata
+      // Incrémenter le compteur avec verrouillage optimiste :
+      // on re-lit la metadata juste après l'écriture pour détecter une course.
       const updatedMeta = { ...meta, downloadCount: meta.downloadCount + 1 };
       await put(metaBlobs[0].pathname, JSON.stringify(updatedMeta, null, 2), {
         access: 'private', contentType: 'application/json',
         addRandomSuffix: false, allowOverwrite: true,
       });
+      // Re-lire pour vérifier qu'aucune requête concurrente n'a aussi incrémenté
+      const verifyResp = await fetch(metaBlobs[0].url, {
+        headers: { Authorization: `Bearer ${token}` },
+        cache: 'no-store',
+      });
+      if (verifyResp.ok) {
+        const verified = await verifyResp.json();
+        if (verified.downloadCount !== updatedMeta.downloadCount) {
+          // Une requête concurrente a modifié le compteur → rejeter celle-ci
+          return res.status(410).json({ error: 'Nombre maximum de téléchargements atteint' });
+        }
+      }
     }
 
     // Mode chunked (nouveau format)

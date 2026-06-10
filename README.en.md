@@ -24,7 +24,7 @@ No long URL to copy-paste. Two short pieces of information to share verbally or 
 | **Salt** | 128-bit random per transfer (stored in metadata, not secret) |
 | **Key** | Never sent to the server — derived locally on both sender and recipient side |
 | **Storage** | Private Vercel Blobs (inaccessible without server token) |
-| **Deletion** | Automatic after first download (safety net: expiration if never downloaded) |
+| **Deletion** | Automatic after first download (safety net: 1-hour expiration if never downloaded) |
 | **Cancellation** | Sender receives a 128-bit `deleteToken` to delete the transfer |
 | **Rate limiting** | Vercel Edge Middleware — 5 uploads/min, 30 req/min on other endpoints |
 | **HTTP headers** | CSP, X-Frame-Options DENY, HSTS preload, X-Content-Type-Options, Referrer-Policy |
@@ -112,7 +112,7 @@ The `prebuild` script automatically increments the patch version in `frontend/pa
 | `CRON_SECRET` | — | Secret to secure `/api/cron/cleanup` (`openssl rand -hex 32`) |
 | `MAX_FILE_SIZE_MB` | `25` | Maximum file size (MB) |
 | `MAX_DOWNLOADS` | `1` | Auto-delete after N download(s) |
-| `EXPIRATION_HOURS` | `24` | Safety net: delete never-downloaded transfers after N hours |
+| `EXPIRATION_HOURS` | `1` | Safety net: delete never-downloaded transfers after N hours |
 | `VITE_MAX_FILE_SIZE_MB` | `25` | Same, exposed to frontend for client-side validation |
 
 ---

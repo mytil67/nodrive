@@ -26,7 +26,7 @@ Aucun lien long à copier-coller. Deux informations courtes à transmettre orale
 | **Sel** | 128 bits aléatoires générés par transfert (stockés dans les métadonnées, pas secret) |
 | **Clé** | Jamais transmise au serveur — dérivée localement côté expéditeur et destinataire |
 | **Stockage** | Blobs privés Vercel (inaccessibles sans token serveur) |
-| **Suppression** | Automatique dès le premier téléchargement (filet de sécurité : expiration si jamais téléchargé) |
+| **Suppression** | Automatique dès le premier téléchargement (filet de sécurité : expiration après 1 h si jamais téléchargé) |
 | **Annulation** | L'expéditeur reçoit un `deleteToken` 128 bits pour supprimer son transfert |
 | **Rate limiting** | Vercel Edge Middleware — 5 uploads/min, 30 req/min sur les autres endpoints |
 | **Headers HTTP** | CSP, X-Frame-Options DENY, HSTS preload, X-Content-Type-Options, Referrer-Policy |
@@ -114,7 +114,7 @@ Le script `prebuild` incrémente automatiquement le numéro de patch dans `front
 | `CRON_SECRET` | — | Secret pour sécuriser `/api/cron/cleanup` (`openssl rand -hex 32`) |
 | `MAX_FILE_SIZE_MB` | `25` | Taille maximale par fichier (Mo) |
 | `MAX_DOWNLOADS` | `1` | Nombre de téléchargements avant suppression automatique |
-| `EXPIRATION_HOURS` | `24` | Filet de sécurité : suppression des transferts jamais téléchargés (heures) |
+| `EXPIRATION_HOURS` | `1` | Filet de sécurité : suppression des transferts jamais téléchargés (heures) |
 | `VITE_MAX_FILE_SIZE_MB` | `25` | Idem, exposé au frontend pour validation côté client |
 
 ---

@@ -20,7 +20,7 @@ import { put } from '@vercel/blob';
 import { randomBytes } from 'crypto';
 
 const MAX_FILE_SIZE_MB = parseInt(process.env.MAX_FILE_SIZE_MB || '25', 10);
-const EXPIRATION_HOURS = parseInt(process.env.EXPIRATION_HOURS || '24', 10);
+const EXPIRATION_HOURS = parseInt(process.env.EXPIRATION_HOURS || '1', 10);
 const MAX_DOWNLOADS    = parseInt(process.env.MAX_DOWNLOADS    || '1',  10);
 
 const CODE_REGEX = /^[A-Z2-9]{6}$/;
@@ -53,8 +53,13 @@ export default async function handler(req, res) {
   }
 
   // Lecture des métadonnées depuis les en-têtes
-  const code         = req.headers['x-blob-code'] || '';
-  const originalName = req.headers['x-blob-name'] ? decodeURIComponent(req.headers['x-blob-name']).replace(/\0/g, '') : '';
+  const code = req.headers['x-blob-code'] || '';
+  let originalName = '';
+  try {
+    originalName = req.headers['x-blob-name'] ? decodeURIComponent(req.headers['x-blob-name']).replace(/\0/g, '') : '';
+  } catch {
+    return res.status(400).json({ error: 'Nom de fichier mal encodé' });
+  }
   const sizeBytes    = parseInt(req.headers['x-blob-size'] || '0', 10);
   const salt         = req.headers['x-blob-salt'] || '';
 

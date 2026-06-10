@@ -10,15 +10,18 @@
  */
 
 import { list, del } from '@vercel/blob';
-import { timingSafeEqual } from 'crypto';
+import { timingSafeEqual, randomBytes, createHmac } from 'crypto';
 
 const BLOB_TOKEN = () => process.env.BLOB_READ_WRITE_TOKEN;
 
 function safeAuthCheck(authHeader, secret) {
   if (!secret || !authHeader) return false;
   const expected = `Bearer ${secret}`;
-  if (authHeader.length !== expected.length) return false;
-  return timingSafeEqual(Buffer.from(authHeader), Buffer.from(expected));
+  // Comparer via HMAC pour éviter de leaker la longueur du secret par timing
+  const key = randomBytes(32);
+  const a = createHmac('sha256', key).update(authHeader).digest();
+  const b = createHmac('sha256', key).update(expected).digest();
+  return timingSafeEqual(a, b);
 }
 
 export default async function handler(req, res) {
