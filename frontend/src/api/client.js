@@ -128,6 +128,20 @@ export async function getFileInfo(code) {
   return body;
 }
 
+/**
+ * Confirme un téléchargement réussi (à appeler UNIQUEMENT après un déchiffrement
+ * réussi de tous les fichiers). Déclenche la consommation du quota côté serveur.
+ * Best-effort : un échec ne doit pas casser l'UX, le fichier reste protégé par
+ * son expiration.
+ */
+export async function confirmDownload(code) {
+  try {
+    await fetch(`/api/file/${encodeURIComponent(code)}/confirm`, { method: 'POST' });
+  } catch {
+    // silencieux — l'expiration + le cron de nettoyage restent le filet ultime
+  }
+}
+
 export async function cancelTransfer(code, deleteToken) {
   const res = await fetch(`/api/file/${encodeURIComponent(code)}/delete`, {
     method: 'POST',

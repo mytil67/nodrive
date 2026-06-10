@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import BackButton from '../components/BackButton.jsx';
 import ProgressBar from '../components/ProgressBar.jsx';
-import { getFileInfo } from '../api/client.js';
+import { getFileInfo, confirmDownload } from '../api/client.js';
 import { deriveKeyFromPassphrase, decryptFile } from '../utils/crypto.js';
 import { formatSize } from '../utils/format.js';
 import { useI18n } from '../i18n/I18nContext.jsx';
@@ -169,6 +169,11 @@ export default function Receive() {
         a.remove();
         URL.revokeObjectURL(url);
       }
+
+      // Tous les fichiers ont été déchiffrés et enregistrés avec succès :
+      // on confirme au serveur pour consommer le quota (et purger si atteint).
+      // Un mot de passe erroné aurait échoué avant ce point → rien n'est consommé.
+      await confirmDownload(code);
 
       setProgress(100);
       setStatus('done');

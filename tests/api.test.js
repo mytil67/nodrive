@@ -331,4 +331,79 @@ describe('GET /api/file/:code/download', async () => {
 
     expect(res.statusCode).toBe(410);
   });
+
+  it('ne consomme PAS le quota (lecture seule) lors du téléchargement', async () => {
+    seedTransfer(createTestMetadata({ downloadCount: 0, maxDownloads: 1 }));
+    const req = createMockReq('GET', { code: 'AB3K7P', file: '0', chunk: '0' });
+    const res = createMockRes();
+
+    await downloadHandler(req, res);
+
+    expect(res.statusCode).toBe(200);
+    // Le compteur ne doit pas avoir bougé et le transfert ne doit pas être supprimé
+    const meta = JSON.parse(blobStore.get('metadata/AB3K7P.json'));
+    expect(meta.downloadCount).toBe(0);
+    expect(blobStore.has('metadata/AB3K7P.json')).toBe(true);
+  });
+});
+
+// ── Tests confirm endpoint ──────────────────────────────────────────────────
+
+describe('POST /api/file/:code/confirm', async () => {
+  const { default: confirmHandler } = await import('../api/file/[code]/confirm.js');
+
+  it('incrémente le compteur sans supprimer quand le quota n\'est pas atteint', async () => {
+    seedTransfer(createTestMetadata({ downloadCount: 0, maxDownloads: 3 }));
+    const req = createMockReq('POST', { code: 'AB3K7P' });
+    const res = createMockRes();
+
+    await confirmHandler(req, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(res._body.consumed).toBe(false);
+    const meta = JSON.parse(blobStore.get('metadata/AB3K7P.json'));
+    expect(meta.downloadCount).toBe(1);
+    expect(blobStore.has('metadata/AB3K7P.json')).toBe(true);
+  });
+
+  it('supprime tout le transfert quand le quota est atteint', async () => {
+    seedTransfer(createTestMetadata({ downloadCount: 0, maxDownloads: 1 }));
+    const req = createMockReq('POST', { code: 'AB3K7P' });
+    const res = createMockRes();
+
+    await confirmHandler(req, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(res._body.consumed).toBe(true);
+    expect(blobStore.has('metadata/AB3K7P.json')).toBe(false);
+    expect(blobStore.has('transfers/AB3K7P/f000-chunk-000.enc')).toBe(false);
+  });
+
+  it('est idempotent sur un code déjà consommé (404 → ok)', async () => {
+    const req = createMockReq('POST', { code: 'ZZZZZZ' });
+    const res = createMockRes();
+
+    await confirmHandler(req, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(res._body.consumed).toBe(true);
+  });
+
+  it('retourne 400 pour un code mal formaté', async () => {
+    const req = createMockReq('POST', { code: 'abc' });
+    const res = createMockRes();
+
+    await confirmHandler(req, res);
+
+    expect(res.statusCode).toBe(400);
+  });
+
+  it('retourne 405 pour une méthode non-POST', async () => {
+    const req = createMockReq('GET', { code: 'AB3K7P' });
+    const res = createMockRes();
+
+    await confirmHandler(req, res);
+
+    expect(res.statusCode).toBe(405);
+  });
 });

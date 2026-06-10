@@ -4,11 +4,13 @@
  * Proxy serveur pour télécharger un chunk de fichier chiffré.
  * Paramètres query : ?file=0&chunk=0
  *
- * Gestion du quota : incrémenté sur file=0&chunk=0 uniquement.
- * Nettoyage : dernier chunk du dernier fichier supprime tout si quota atteint.
+ * Gestion du quota : ce endpoint ne fait que VÉRIFIER le quota (lecture seule).
+ * La consommation réelle (incrément + suppression) est déclenchée par le client
+ * via POST .../confirm, une fois le déchiffrement réussi. Ainsi un mauvais mot
+ * de passe ou un téléchargement interrompu ne consomme ni ne détruit rien.
  */
 
-import { list, put, del } from '@vercel/blob';
+import { list } from '@vercel/blob';
 
 const CODE_REGEX = /^[A-Z2-9]{6}$/;
 
@@ -56,7 +58,6 @@ export default async function handler(req, res) {
     }
 
     const files = meta.files;
-    const allChunkUrls = files.flatMap(f => f.chunkUrls || []);
 
     // Validation des index
     if (fileIndex >= files.length) {
@@ -68,32 +69,10 @@ export default async function handler(req, res) {
       return res.status(410).json({ error: 'Fichier sans chunks' });
     }
 
-    const isFirstOverall = (fileIndex === 0 && chunkIndex === 0);
-    const isLastOverall  = (fileIndex === files.length - 1) &&
-                           (chunkIndex === file.chunkUrls.length - 1);
-
-    // Vérifier quota uniquement sur la toute première requête
-    if (isFirstOverall) {
-      if (meta.maxDownloads > 0 && meta.downloadCount >= meta.maxDownloads) {
-        return res.status(410).json({ error: 'Nombre maximum de téléchargements atteint' });
-      }
-      // Incrémenter le compteur avec verrouillage optimiste
-      const updatedMeta = { ...meta, downloadCount: meta.downloadCount + 1 };
-      await put(metaBlobs[0].pathname, JSON.stringify(updatedMeta, null, 2), {
-        access: 'private', contentType: 'application/json',
-        addRandomSuffix: false, allowOverwrite: true,
-      });
-      // Re-lire pour vérifier qu'aucune requête concurrente n'a aussi incrémenté
-      const verifyResp = await fetch(metaBlobs[0].url, {
-        headers: { Authorization: `Bearer ${token}` },
-        cache: 'no-store',
-      });
-      if (verifyResp.ok) {
-        const verified = await verifyResp.json();
-        if (verified.downloadCount !== updatedMeta.downloadCount) {
-          return res.status(410).json({ error: 'Nombre maximum de téléchargements atteint' });
-        }
-      }
+    // Vérification du quota en LECTURE SEULE. Aucune écriture ici : la
+    // consommation a lieu via POST .../confirm après déchiffrement réussi.
+    if (meta.maxDownloads > 0 && meta.downloadCount >= meta.maxDownloads) {
+      return res.status(410).json({ error: 'Nombre maximum de téléchargements atteint' });
     }
 
     // Validation index chunk
@@ -127,18 +106,6 @@ export default async function handler(req, res) {
     } catch (streamErr) {
       console.error(`[download] Erreur stream :`, streamErr.message);
       if (!res.writableEnded) res.end();
-    }
-
-    // Nettoyer après le tout dernier chunk si quota atteint
-    if (isLastOverall) {
-      const finalCount = meta.downloadCount + 1;
-      if (meta.maxDownloads > 0 && finalCount >= meta.maxDownloads) {
-        const urlsToDelete = [metaBlobs[0].url, ...allChunkUrls];
-        await del(urlsToDelete).catch(e =>
-          console.error('[download] Erreur suppression :', e.message)
-        );
-        console.log(`[download] Transfert ${code} supprimé (quota atteint)`);
-      }
     }
 
   } catch (err) {

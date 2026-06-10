@@ -19,10 +19,16 @@
 import { next, ipAddress } from '@vercel/edge';
 
 // ── Configuration des limites ──────────────────────────────────────────────
+// Important : upload ET download fonctionnent par chunks (une requête HTTP par
+// chunk). Un transfert légitime peut donc générer plusieurs dizaines de
+// requêtes sur le même bucket en quelques secondes — les limites doivent les
+// absorber. La protection anti-énumération (recordEnumFailure ci-dessous) et
+// Cloudflare WAF en amont restent les vraies barrières anti-abus ; ces limites
+// ne servent qu'à lisser les pics par instance edge.
 const RATE_LIMITS = {
-  '/api/upload':              { max: 5,  windowMs: 60_000 },  // 5 uploads/min
-  '/api/file':                { max: 10, windowMs: 60_000 },  // 10 info+download/min (anti-enum)
-  default:                    { max: 60, windowMs: 60_000 },  // 60 req/min autres
+  '/api/upload':              { max: 100, windowMs: 60_000 },  // ~chunks de plusieurs uploads/min
+  '/api/file':                { max: 100, windowMs: 60_000 },  // ~chunks de download + info
+  default:                    { max: 60,  windowMs: 60_000 },  // 60 req/min autres
 };
 
 // Après N échecs sur /api/file/*/info par IP → blocage temporaire
