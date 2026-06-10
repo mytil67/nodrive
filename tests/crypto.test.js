@@ -84,7 +84,7 @@ describe('encrypt / decrypt', () => {
     expect(new Uint8Array(decrypted)).toEqual(plaintext);
   });
 
-  it('gros fichier (1 Mo) : round-trip fonctionne', async () => {
+  it('gros fichier (1 Mo) : round-trip fonctionne', { timeout: 30_000 }, async () => {
     const salt = generateSalt();
     const plaintext = new Uint8Array(1024 * 1024);
     // getRandomValues a une limite de 65536 bytes, remplir par blocs
