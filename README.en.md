@@ -50,10 +50,8 @@ The server never sees the password or the decryption key.
 ```
 /
 ├── api/
-│   ├── upload.js                 POST /api/upload (files ≤ 4 MB)
 │   ├── upload/
-│   │   ├── authorize.js          POST /api/upload/authorize (Blob client token)
-│   │   └── complete.js           POST /api/upload/complete (metadata post-upload)
+│   │   └── chunk.js              POST /api/upload/chunk (chunked multi-file upload)
 │   ├── health.js                 GET  /api/health
 │   ├── cron/cleanup.js           GET  /api/cron/cleanup
 │   └── file/[code]/

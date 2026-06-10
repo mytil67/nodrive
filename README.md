@@ -52,10 +52,8 @@ Le serveur ne voit jamais le mot de passe ni la clé de déchiffrement.
 ```
 /
 ├── api/
-│   ├── upload.js                 POST /api/upload (fichiers ≤ 4 Mo)
 │   ├── upload/
-│   │   ├── authorize.js          POST /api/upload/authorize (token client Blob)
-│   │   └── complete.js           POST /api/upload/complete (métadonnées post-upload)
+│   │   └── chunk.js              POST /api/upload/chunk (upload chunked multi-fichier)
 │   ├── health.js                 GET  /api/health
 │   ├── cron/cleanup.js           GET  /api/cron/cleanup
 │   └── file/[code]/

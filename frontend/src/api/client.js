@@ -108,15 +108,6 @@ function sendChunk(code, chunkData, chunkIndex, chunkTotal, fileIndex, fileTotal
   });
 }
 
-// ── Backward-compatible single-file wrapper ──
-export async function uploadEncryptedFile(code, encryptedData, fileMeta, onProgress) {
-  return uploadEncryptedFiles(code, [{
-    encrypted: encryptedData,
-    name: fileMeta.originalName,
-    size: fileMeta.size,
-  }], fileMeta.salt, onProgress);
-}
-
 export async function getFileInfo(code) {
   const res  = await fetch(`/api/file/${encodeURIComponent(code)}/info`);
   const body = await res.json().catch(() => ({}));
