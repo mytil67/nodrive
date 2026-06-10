@@ -14,7 +14,7 @@ export default function ProgressBar({ value }) {
     >
       <div
         className="progress-bar__fill"
-        style={{ width: `${value}%` }}
+        ref={(el) => { if (el) el.style.setProperty('--progress', `${value}%`); }}
       />
     </div>
   );

@@ -18,7 +18,7 @@
 ```
 default-src 'self';
 script-src 'self';
-style-src 'self' 'unsafe-inline';
+style-src 'self';
 img-src 'self' data: blob:;
 connect-src 'self';
 font-src 'self';
@@ -26,6 +26,7 @@ object-src 'none';
 base-uri 'self';
 frame-ancestors 'none';
 form-action 'self';
+upgrade-insecure-requests;
 ```
 
 ### Explications
@@ -33,11 +34,12 @@ form-action 'self';
 | Directive | Valeur | Pourquoi |
 |-----------|--------|----------|
 | `script-src 'self'` | Pas d'inline | Bloque XSS inline |
-| `style-src 'unsafe-inline'` | Nécessaire | React injecte des styles inline (ex: `style={{ width }}` sur ProgressBar) |
+| `style-src 'self'` | Pas d'inline | Tous les styles via CSS (plus aucun `style={}` React) |
 | `img-src data: blob:` | Nécessaire | QR code SVG en data URL + blob URL pour téléchargement |
 | `connect-src 'self'` | Strict | Pas de domaine externe (les blobs sont proxiés par le serveur) |
 | `object-src 'none'` | Bloqué | Pas de plugins Flash/Java |
 | `frame-ancestors 'none'` | Bloqué | Pas d'embedding en iframe |
+| `upgrade-insecure-requests` | Forcé | Toute requête HTTP est automatiquement redirigée en HTTPS |
 
 ### Domaines Blob Storage absents de connect-src
 

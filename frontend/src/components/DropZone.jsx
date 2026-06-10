@@ -45,7 +45,7 @@ export default function DropZone({ files, onFiles }) {
         onClick={() => inputRef.current?.click()}
         onKeyDown={handleKeyDown}
       >
-        <input ref={inputRef} type="file" multiple style={{ display: 'none' }} onChange={onFileInput} aria-hidden="true" />
+        <input ref={inputRef} type="file" multiple className="visually-hidden" onChange={onFileInput} aria-hidden="true" />
 
         {!hasFiles ? (
           <>

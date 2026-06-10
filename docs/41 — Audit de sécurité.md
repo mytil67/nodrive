@@ -93,6 +93,20 @@ const limit = 256 - (256 % 31); // 248
 **Risque** : Sel inférieur à la taille de la clé AES-256
 **Fix** : 256 bits (32 octets) — regex backend mise à jour (64 hex chars)
 
+## Corrections appliquées — Round 5 (`1588d83`+)
+
+### 14. CSP `style-src 'unsafe-inline'` (LOW)
+
+**Avant** : `style-src 'self' 'unsafe-inline'` pour permettre les `style={{}}` React
+**Risque** : Un attaquant pourrait injecter des styles inline malveillants
+**Fix** : Remplacement des styles inline par des classes CSS et CSS custom properties (`--progress`), suppression de `'unsafe-inline'`
+
+### 15. Pas de `upgrade-insecure-requests` (LOW)
+
+**Avant** : CSP sans directive de forçage HTTPS
+**Risque** : Un utilisateur accédant en HTTP n'est pas redirigé vers HTTPS par le navigateur
+**Fix** : Ajout de `upgrade-insecure-requests` dans la CSP
+
 ## Vecteurs non couverts (à surveiller)
 
 | Vecteur | Statut | Note |
