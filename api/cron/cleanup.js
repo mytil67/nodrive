@@ -57,8 +57,6 @@ export default async function handler(req, res) {
 
           if (now > meta.expiresAt) {
             const urlsToDelete = [metaBlob.url];
-            if (meta.blobUrl) urlsToDelete.push(meta.blobUrl);
-            if (meta.chunkUrls) urlsToDelete.push(...meta.chunkUrls);
             if (meta.files) {
               for (const f of meta.files) {
                 if (f.chunkUrls) urlsToDelete.push(...f.chunkUrls);
@@ -67,7 +65,7 @@ export default async function handler(req, res) {
 
             await del(urlsToDelete);
             deleted++;
-            const name = meta.files ? meta.files.map(f => f.originalName).join(', ') : meta.originalName;
+            const name = meta.files ? meta.files.map(f => f.originalName).join(', ') : '(inconnu)';
             console.log(`[cleanup] Supprimé : ${meta.code} — ${name}`);
           }
         } catch (err) {

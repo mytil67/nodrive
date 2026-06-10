@@ -2,7 +2,6 @@
  * GET /api/file/:code/info
  *
  * Retourne les métadonnées publiques d'un transfert.
- * Supporte l'ancien format (fichier unique) et le nouveau (multi-fichier).
  */
 
 import { list } from '@vercel/blob';
@@ -46,21 +45,15 @@ export default async function handler(req, res) {
       return res.status(410).json({ error: 'Nombre maximum de téléchargements atteint' });
     }
 
-    // Normaliser : ancien format → nouveau format (files array)
-    let files;
-    if (meta.files) {
-      files = meta.files.map(f => ({
-        originalName: f.originalName,
-        size:         f.size,
-        chunkCount:   f.chunkCount || 0,
-      }));
-    } else {
-      files = [{
-        originalName: meta.originalName,
-        size:         meta.size,
-        chunkCount:   meta.chunkCount || 0,
-      }];
+    if (!meta.files || !meta.files.length) {
+      return res.status(410).json({ error: 'Format de transfert non supporté' });
     }
+
+    const files = meta.files.map(f => ({
+      originalName: f.originalName,
+      size:         f.size,
+      chunkCount:   f.chunkCount || 0,
+    }));
 
     return res.json({
       files,
