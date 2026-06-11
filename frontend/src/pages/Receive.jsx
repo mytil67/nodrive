@@ -3,7 +3,7 @@ import { useParams } from 'react-router-dom';
 import BackButton from '../components/BackButton.jsx';
 import ProgressBar from '../components/ProgressBar.jsx';
 import { getFileInfo, confirmDownload } from '../api/client.js';
-import { deriveKeyFromPassphrase, decryptFile } from '../utils/crypto.js';
+import { deriveKeyAndVerifier, decryptFile } from '../utils/crypto.js';
 import { formatSize } from '../utils/format.js';
 import { useI18n } from '../i18n/I18nContext.jsx';
 
@@ -18,6 +18,8 @@ export default function Receive() {
   const [progress,     setProgress]     = useState(0);
   const [subLabel,     setSubLabel]     = useState('');
   const [error,        setError]        = useState('');
+  const [savedFiles,   setSavedFiles]   = useState([]); // { name, url } — blobs déchiffrés
+  const [showPass,     setShowPass]     = useState(false);
 
   useEffect(() => {
     if (urlCode) lookupCode(urlCode);
@@ -35,16 +37,12 @@ export default function Receive() {
       setInputCode(normalized);
       setStatus('ready');
     } catch (err) {
-      // Map server errors to user-friendly messages
-      const msg = err.message || '';
-      if (msg.includes('400') || msg.includes('invalide')) {
-        setError(t('receive.error.invalid'));
-      } else if (msg.includes('410') || msg.includes('expiré') || msg.includes('expired')) {
-        setError(t('receive.error.expired'));
-      } else if (msg.includes('404') || msg.includes('introuvable') || msg.includes('not found')) {
-        setError(t('receive.error.notfound'));
-      } else {
-        setError(msg);
+      // Mapping fiable via le status HTTP (indépendant de la langue du serveur)
+      switch (err.status) {
+        case 400: setError(t('receive.error.invalid'));  break;
+        case 404: setError(t('receive.error.notfound')); break;
+        case 410: setError(t('receive.error.expired'));  break;
+        default:  setError(err.message || t('receive.error.download'));
       }
       setStatus('error');
     }
@@ -75,7 +73,9 @@ export default function Receive() {
       }
       let chunksDownloaded = 0;
 
-      const cryptoKey = await deriveKeyFromPassphrase(pass, fileInfo.salt, 'decrypt');
+      const { key: cryptoKey, verifier } = await deriveKeyAndVerifier(pass, fileInfo.salt, 'decrypt');
+      const fetchOpts = { headers: { 'x-blob-verifier': verifier } };
+      const downloaded = [];
 
       for (let fi = 0; fi < totalFiles; fi++) {
         const file = files[fi];
@@ -93,9 +93,11 @@ export default function Receive() {
 
           for (let ci = 0; ci < file.chunkCount; ci++) {
             const response = await fetch(
-              `/api/file/${encodeURIComponent(code)}/download?file=${fi}&chunk=${ci}`
+              `/api/file/${encodeURIComponent(code)}/download?file=${fi}&chunk=${ci}`,
+              fetchOpts
             );
             if (!response.ok) {
+              if (response.status === 403) throw new Error(t('receive.error.badpassword'));
               let msg = `${t('receive.error.download')} (chunk ${ci}, HTTP ${response.status})`;
               try { const b = await response.json(); if (b.error) msg = b.error; } catch {}
               throw new Error(msg);
@@ -121,8 +123,9 @@ export default function Receive() {
           }
         } else {
           // Ancien format fichier unique (blobUrl)
-          const response = await fetch(`/api/file/${encodeURIComponent(code)}/download?file=${fi}&chunk=0`);
+          const response = await fetch(`/api/file/${encodeURIComponent(code)}/download?file=${fi}&chunk=0`, fetchOpts);
           if (!response.ok) {
+            if (response.status === 403) throw new Error(t('receive.error.badpassword'));
             let msg = t('receive.error.download');
             try { const b = await response.json(); if (b.error) msg = b.error; } catch {}
             throw new Error(msg);
@@ -158,22 +161,27 @@ export default function Receive() {
 
         const decryptedBuffer = await decryptFile(encryptedData, cryptoKey);
 
-        // Déclencher le téléchargement dans le navigateur
+        // Conserver le blob : les navigateurs bloquent les téléchargements
+        // automatiques multiples — on propose aussi un bouton par fichier.
         const blob = new Blob([decryptedBuffer]);
         const url  = URL.createObjectURL(blob);
+        downloaded.push({ name: file.originalName, url });
+
+        // Déclencher le téléchargement dans le navigateur
         const a    = document.createElement('a');
         a.href     = url;
         a.download = file.originalName;
         document.body.appendChild(a);
         a.click();
         a.remove();
-        URL.revokeObjectURL(url);
       }
+
+      setSavedFiles(downloaded);
 
       // Tous les fichiers ont été déchiffrés et enregistrés avec succès :
       // on confirme au serveur pour consommer le quota (et purger si atteint).
       // Un mot de passe erroné aurait échoué avant ce point → rien n'est consommé.
-      await confirmDownload(code);
+      await confirmDownload(code, verifier);
 
       setProgress(100);
       setStatus('done');
@@ -185,6 +193,8 @@ export default function Receive() {
   }
 
   function reset() {
+    for (const f of savedFiles) URL.revokeObjectURL(f.url);
+    setSavedFiles([]);
     setInputCode('');
     setPassphrase('');
     setFileInfo(null);
@@ -192,6 +202,7 @@ export default function Receive() {
     setProgress(0);
     setSubLabel('');
     setError('');
+    setShowPass(false);
   }
 
   const showInput = status === 'idle' || status === 'loading' || status === 'error';
@@ -227,8 +238,8 @@ export default function Receive() {
               id="code-input"
               type="text"
               value={inputCode}
-              onChange={(e) => setInputCode(e.target.value.toUpperCase())}
-              maxLength={8}
+              onChange={(e) => setInputCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))}
+              maxLength={6}
               placeholder={t('receive.code.placeholder')}
               onKeyDown={(e) => e.key === 'Enter' && lookupCode()}
               className="code-input"
@@ -274,23 +285,53 @@ export default function Receive() {
             <p className="file-expiry-info">
               <span className="file-expiry-info__single">{t('receive.expires.single')}</span>
               <span className="file-expiry-info__time">{t('receive.expires.time', { remaining: formatRemaining() })}</span>
+              {fileInfo.maxDownloads > 0 && (
+                <span className="file-expiry-info__downloads">
+                  {t('receive.downloads.remaining', { count: Math.max(0, fileInfo.maxDownloads - (fileInfo.downloadCount || 0)) })}
+                </span>
+              )}
             </p>
           </div>
 
           <div className="passphrase-field">
             <label htmlFor="passphrase-recv">{t('receive.password.label')}</label>
-            <input
-              id="passphrase-recv"
-              type="text"
-              value={passphrase}
-              onChange={(e) => setPassphrase(e.target.value)}
-              placeholder={t('receive.password.placeholder')}
-              className="code-input"
-              autoComplete="off"
-              autoFocus
-              aria-label={t('receive.password.aria')}
-              onKeyDown={(e) => e.key === 'Enter' && passphrase.trim() && handleDownload()}
-            />
+            <div className="passphrase-row">
+              <input
+                id="passphrase-recv"
+                type={showPass ? 'text' : 'password'}
+                value={passphrase}
+                onChange={(e) => setPassphrase(e.target.value)}
+                placeholder={t('receive.password.placeholder')}
+                className="code-input"
+                autoComplete="off"
+                autoFocus
+                aria-label={t('receive.password.aria')}
+                onKeyDown={(e) => e.key === 'Enter' && passphrase.trim() && handleDownload()}
+              />
+              <button
+                type="button"
+                className="passphrase-toggle"
+                onClick={() => setShowPass(!showPass)}
+                aria-label={showPass ? t('common.hidepass') : t('common.showpass')}
+                aria-pressed={showPass}
+              >
+                {showPass ? (
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+                       strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/>
+                    <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/>
+                    <path d="M14.12 14.12a3 3 0 1 1-4.24-4.24"/>
+                    <line x1="1" y1="1" x2="23" y2="23"/>
+                  </svg>
+                ) : (
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+                       strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                    <circle cx="12" cy="12" r="3"/>
+                  </svg>
+                )}
+              </button>
+            </div>
           </div>
 
           <button
@@ -339,6 +380,21 @@ export default function Receive() {
           <p className="send-progress-card__sub send-progress-card__sub--success">
             {fileCount > 1 ? t('receive.success.multi.sub') : t('receive.success.sub')}
           </p>
+          {savedFiles.length > 1 && (
+            <>
+              <p className="saved-files__hint">{t('receive.saved.hint')}</p>
+              <ul className="file-list file-list--receive">
+                {savedFiles.map((f) => (
+                  <li key={f.url} className="file-list__item">
+                    <span className="file-list__name">{f.name}</span>
+                    <a className="btn btn--outline btn--sm" href={f.url} download={f.name}>
+                      {t('receive.saved.save')}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
           <button className="btn btn--secondary" onClick={reset}>
             {t('receive.again')}
           </button>

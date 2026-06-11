@@ -42,16 +42,21 @@ const rlCache = new Map();
 /** @type {Map<string, { fails: number, resetAt: number, blockedUntil: number }>} */
 const enumCache = new Map();
 
-// Nettoyage périodique pour éviter une fuite mémoire sur les instances longues
-setInterval(() => {
+// Nettoyage lazy : les runtimes edge ne garantissent pas l'exécution de timers
+// hors requête (setInterval peut ne jamais tourner). On purge donc les entrées
+// expirées au fil des requêtes, au plus une fois toutes les 2 minutes.
+let lastSweep = 0;
+function sweepCaches() {
   const now = Date.now();
+  if (now - lastSweep < 120_000) return;
+  lastSweep = now;
   for (const [key, entry] of rlCache) {
     if (now > entry.resetAt) rlCache.delete(key);
   }
   for (const [key, entry] of enumCache) {
     if (now > entry.blockedUntil && now > entry.resetAt) enumCache.delete(key);
   }
-}, 120_000);
+}
 
 function getLimit(pathname) {
   for (const [prefix, limit] of Object.entries(RATE_LIMITS)) {
@@ -125,6 +130,7 @@ function getClientIp(request) {
 }
 
 export default async function middleware(request) {
+  sweepCaches();
   const ip       = getClientIp(request);
   const url      = new URL(request.url);
   const pathname = url.pathname;
@@ -179,7 +185,9 @@ export default async function middleware(request) {
   response.headers.set('X-RateLimit-Remaining', String(remaining));
 
   // ── Traquer les échecs pour l'anti-énumération ──
-  if (isFileEndpoint && (response.status === 404 || response.status === 410)) {
+  // 404/410 : code inconnu/expiré. 403 : verifier invalide (mot de passe
+  // erroné) — throttle aussi les tentatives de brute-force online du mot de passe.
+  if (isFileEndpoint && (response.status === 404 || response.status === 410 || response.status === 403)) {
     recordEnumFailure(ip);
   }
 

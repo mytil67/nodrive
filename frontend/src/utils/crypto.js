@@ -58,6 +58,26 @@ export function generateSalt() {
  * @returns {Promise<CryptoKey>}
  */
 export async function deriveKeyFromPassphrase(passphrase, saltHex, usage = 'encrypt') {
+  const { key } = await deriveKeyAndVerifier(passphrase, saltHex, usage);
+  return key;
+}
+
+/**
+ * Dérive depuis le mot de passe :
+ *  - une clé AES-GCM 256 bits (chiffrement/déchiffrement)
+ *  - un "verifier" 256 bits hex, transmis au serveur comme preuve de
+ *    connaissance du mot de passe (consommation du quota, téléchargement).
+ *
+ * Les deux moitiés proviennent de blocs PBKDF2 indépendants : connaître le
+ * verifier ne donne aucune information sur la clé AES. Le serveur reste
+ * zero-knowledge vis-à-vis du contenu.
+ *
+ * @param {string} passphrase
+ * @param {string} saltHex - sel 256 bits hex
+ * @param {'encrypt'|'decrypt'} usage
+ * @returns {Promise<{ key: CryptoKey, verifier: string }>}
+ */
+export async function deriveKeyAndVerifier(passphrase, saltHex, usage = 'encrypt') {
   const enc = new TextEncoder();
   // Décoder le sel hex en bytes
   const saltBytes = new Uint8Array(saltHex.match(/.{2}/g).map((b) => parseInt(b, 16)));
@@ -66,9 +86,9 @@ export async function deriveKeyFromPassphrase(passphrase, saltHex, usage = 'encr
     enc.encode(passphrase),
     'PBKDF2',
     false,
-    ['deriveKey']
+    ['deriveBits']
   );
-  return crypto.subtle.deriveKey(
+  const bits = await crypto.subtle.deriveBits(
     {
       name:       'PBKDF2',
       salt:       saltBytes,
@@ -76,10 +96,23 @@ export async function deriveKeyFromPassphrase(passphrase, saltHex, usage = 'encr
       hash:       'SHA-256',
     },
     keyMaterial,
+    512
+  );
+  const bytes = new Uint8Array(bits);
+
+  const key = await crypto.subtle.importKey(
+    'raw',
+    bytes.slice(0, 32),
     { name: 'AES-GCM', length: 256 },
     false,
     [usage === 'decrypt' ? 'decrypt' : 'encrypt']
   );
+
+  const verifier = Array.from(bytes.slice(32))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+
+  return { key, verifier };
 }
 
 // ---------------------------------------------------------------------------

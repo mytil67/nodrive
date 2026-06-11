@@ -507,6 +507,41 @@ a:hover {
 }
 .send-passphrase-input::placeholder { color: var(--color-border); }
 
+/* ---- Champ mot de passe avec toggle œil ---- */
+.passphrase-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.passphrase-row input {
+  flex: 1;
+  padding-right: 2.75rem;
+}
+.passphrase-toggle {
+  position: absolute;
+  right: 0.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-dim, #888);
+  cursor: pointer;
+  transition: color var(--transition);
+}
+.passphrase-toggle:hover,
+.passphrase-toggle:focus-visible {
+  color: var(--color-text);
+}
+.passphrase-toggle svg {
+  width: 1.15rem;
+  height: 1.15rem;
+}
+
 .btn--send-cta {
   display: flex;
   align-items: center;
@@ -785,6 +820,26 @@ a:hover {
 }
 
 /* ---- Responsive ---- */
+@media (max-width: 640px) {
+  .home {
+    gap: 2rem;
+    padding: 2rem 1rem 3rem;
+  }
+  .hero__subtitle {
+    font-size: 0.95rem;
+  }
+  .send-progress-card {
+    padding: 2rem 1.25rem;
+  }
+  .code-display {
+    padding: 1.5rem 1rem;
+  }
+  .code-display__qr-img {
+    width: clamp(120px, 30vw, 160px);
+    height: clamp(120px, 30vw, 160px);
+  }
+}
+
 @media (max-width: 480px) {
   .code-input-row {
     flex-direction: column;
@@ -792,6 +847,45 @@ a:hover {
   .code-display__actions {
     flex-direction: column;
     align-items: stretch;
+  }
+  .dropzone {
+    padding: 1.5rem 1rem;
+    min-height: 120px;
+  }
+  .send-page {
+    padding: 1.5rem 0.75rem 3rem;
+  }
+  .page {
+    padding: 1.5rem 0.75rem 3rem;
+  }
+  .page h1 {
+    font-size: 1.4rem;
+    margin-bottom: 1.5rem;
+  }
+  .action-card {
+    padding: 0.9rem 1rem;
+  }
+  .confirm-dialog__actions {
+    flex-direction: column;
+  }
+  .confirm-dialog__actions .btn {
+    max-width: none;
+  }
+}
+
+@media (max-width: 360px) {
+  .hero__title {
+    font-size: clamp(2.5rem, 14vw, 3.5rem);
+  }
+  .hero__eyebrow {
+    font-size: 0.65rem;
+  }
+  .send-step__label {
+    font-size: 0.85rem;
+  }
+  .btn--send-cta {
+    font-size: 0.9rem;
+    padding: 0.75rem;
   }
 }
 
@@ -1120,6 +1214,24 @@ a:hover {
 }
 .file-expiry-info__time {
   font-size: 0.75rem;
+}
+.file-expiry-info__downloads {
+  font-size: 0.75rem;
+}
+
+/* ---- Boutons d'action du code (copier code / lien) ---- */
+.code-display__actions {
+  display: flex;
+  justify-content: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+/* ---- Liste de ré-enregistrement des fichiers déchiffrés ---- */
+.saved-files__hint {
+  margin: 0.75rem 0 0.5rem;
+  font-size: 0.85rem;
+  color: var(--color-text-dim, #888);
 }
 
 /* ---- Success sub-message ---- */

@@ -73,6 +73,6 @@ export default async function handler(req, res) {
  * Comparaison de chaînes en temps constant via crypto.timingSafeEqual natif.
  */
 function safeEqual(a, b) {
-  if (a.length !== b.length) return false;
+  if (typeof a !== 'string' || typeof b !== 'string' || a.length !== b.length) return false;
   return cryptoTimingSafeEqual(Buffer.from(a), Buffer.from(b));
 }

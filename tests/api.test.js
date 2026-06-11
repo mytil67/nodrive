@@ -406,4 +406,91 @@ describe('POST /api/file/:code/confirm', async () => {
 
     expect(res.statusCode).toBe(405);
   });
+
+  // ── Verifier (preuve de mot de passe) ──
+  const VERIFIER = 'c'.repeat(64);
+
+  it('refuse (403) la confirmation sans verifier quand le transfert en a un', async () => {
+    seedTransfer(createTestMetadata({ verifier: VERIFIER }));
+    const req = createMockReq('POST', { code: 'AB3K7P' });
+    const res = createMockRes();
+
+    await confirmHandler(req, res);
+
+    expect(res.statusCode).toBe(403);
+    // Rien ne doit avoir été consommé ni supprimé
+    const meta = JSON.parse(blobStore.get('metadata/AB3K7P.json'));
+    expect(meta.downloadCount).toBe(0);
+  });
+
+  it('refuse (403) un verifier incorrect', async () => {
+    seedTransfer(createTestMetadata({ verifier: VERIFIER }));
+    const req = createMockReq('POST', { code: 'AB3K7P' }, { 'x-blob-verifier': 'd'.repeat(64) });
+    const res = createMockRes();
+
+    await confirmHandler(req, res);
+
+    expect(res.statusCode).toBe(403);
+    expect(blobStore.has('metadata/AB3K7P.json')).toBe(true);
+  });
+
+  it('accepte le bon verifier et consomme le quota', async () => {
+    seedTransfer(createTestMetadata({ verifier: VERIFIER, maxDownloads: 1 }));
+    const req = createMockReq('POST', { code: 'AB3K7P' }, { 'x-blob-verifier': VERIFIER });
+    const res = createMockRes();
+
+    await confirmHandler(req, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(res._body.consumed).toBe(true);
+    expect(blobStore.has('metadata/AB3K7P.json')).toBe(false);
+  });
+
+  it('reste compatible avec les anciens transferts sans verifier', async () => {
+    seedTransfer(createTestMetadata({ maxDownloads: 3 }));
+    const req = createMockReq('POST', { code: 'AB3K7P' });
+    const res = createMockRes();
+
+    await confirmHandler(req, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(res._body.consumed).toBe(false);
+  });
+});
+
+// ── Tests download : verifier ───────────────────────────────────────────────
+
+describe('GET /api/file/:code/download — verifier', async () => {
+  const { default: downloadHandler } = await import('../api/file/[code]/download.js');
+  const VERIFIER = 'c'.repeat(64);
+
+  it('refuse (403) le téléchargement sans verifier quand le transfert en a un', async () => {
+    seedTransfer(createTestMetadata({ verifier: VERIFIER }));
+    const req = createMockReq('GET', { code: 'AB3K7P', file: '0', chunk: '0' });
+    const res = createMockRes();
+
+    await downloadHandler(req, res);
+
+    expect(res.statusCode).toBe(403);
+  });
+
+  it('sert le chunk avec le bon verifier', async () => {
+    seedTransfer(createTestMetadata({ verifier: VERIFIER }));
+    const req = createMockReq('GET', { code: 'AB3K7P', file: '0', chunk: '0' }, { 'x-blob-verifier': VERIFIER });
+    const res = createMockRes();
+
+    await downloadHandler(req, res);
+
+    expect(res.statusCode).toBe(200);
+  });
+
+  it('sert le chunk sans verifier pour un ancien transfert (compat)', async () => {
+    seedTransfer(createTestMetadata());
+    const req = createMockReq('GET', { code: 'AB3K7P', file: '0', chunk: '0' });
+    const res = createMockRes();
+
+    await downloadHandler(req, res);
+
+    expect(res.statusCode).toBe(200);
+  });
 });

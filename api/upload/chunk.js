@@ -13,6 +13,7 @@
  *
  * Sur le dernier chunk du dernier fichier :
  *   x-blob-salt         : sel PBKDF2 256 bits hex
+ *   x-blob-verifier     : verifier 256 bits hex dérivé du mot de passe (PBKDF2)
  *   x-blob-files        : JSON array de { name, size } encodé en base64 (UTF-8)
  */
 
@@ -26,8 +27,9 @@ const MAX_CHUNK_BYTES  = 4 * 1024 * 1024;
 const MAX_FILES        = 50;
 const MAX_CHUNKS_PER_FILE = 100;
 
-const CODE_REGEX = /^[A-Z2-9]{6}$/;
-const SALT_REGEX = /^[0-9a-f]{64}$/;
+const CODE_REGEX     = /^[A-Z2-9]{6}$/;
+const SALT_REGEX     = /^[0-9a-f]{64}$/;
+const VERIFIER_REGEX = /^[0-9a-f]{64}$/;
 
 function sanitizeFilename(name) {
   let sanitized = String(name)
@@ -67,6 +69,7 @@ export default async function handler(req, res) {
   const fileIndex  = parseInt(req.headers['x-file-index']  || '0', 10);
   const fileTotal  = parseInt(req.headers['x-file-total']  || '1', 10);
   const salt       = req.headers['x-blob-salt'] || '';
+  const verifier   = (req.headers['x-blob-verifier'] || '').toLowerCase();
   const filesJson  = req.headers['x-blob-files'] || '';
 
   // Validations
@@ -118,6 +121,9 @@ export default async function handler(req, res) {
       if (!SALT_REGEX.test(salt)) {
         return res.status(400).json({ error: 'Sel invalide' });
       }
+      if (!VERIFIER_REGEX.test(verifier)) {
+        return res.status(400).json({ error: 'Verifier invalide' });
+      }
 
       let fileMetas;
       try {
@@ -158,12 +164,12 @@ export default async function handler(req, res) {
         const prefix = `f${String(f).padStart(3, '0')}-chunk-`;
         const fileChunks = sorted.filter(b => b.pathname.includes(prefix));
 
-        // Valider la complétude : chaque fichier doit avoir exactement le bon nombre de chunks
-        const expectedCount = (f === fileTotal - 1 && f === fileIndex)
-          ? chunkTotal   // dernier fichier : on connaît chunkTotal depuis le header
-          : fileChunks.length; // fichiers précédents : déjà uploadés
         if (fileChunks.length < 1) {
           return res.status(400).json({ error: `Fichier ${f} : aucun chunk reçu` });
+        }
+        // Dernier fichier : le header chunkTotal donne le compte exact attendu
+        if (f === fileTotal - 1 && fileChunks.length !== chunkTotal) {
+          return res.status(400).json({ error: `Fichier ${f} : nombre de chunks incohérent` });
         }
         // Vérifier que les indices sont continus (0, 1, 2, …, N-1)
         for (let c = 0; c < fileChunks.length; c++) {
@@ -182,12 +188,21 @@ export default async function handler(req, res) {
       }
 
       const encryptedSize = sorted.reduce((sum, b) => sum + b.size, 0);
+
+      // Valider la taille RÉELLE stockée (pas seulement celle déclarée par le
+      // client) : chiffré = clair + 28 octets d'overhead AES-GCM par fichier.
+      const maxEncrypted = MAX_FILE_SIZE_MB * 1024 * 1024 + fileTotal * 64;
+      if (encryptedSize > maxEncrypted) {
+        return res.status(400).json({ error: `Taille totale trop grande (max ${MAX_FILE_SIZE_MB} Mo)` });
+      }
+
       const deleteToken   = randomBytes(16).toString('hex');
       const expiresAt     = Date.now() + EXPIRATION_HOURS * 3600 * 1000;
 
       const metadata = {
         code,
         salt,
+        verifier,
         deleteToken,
         files,
         totalSize,

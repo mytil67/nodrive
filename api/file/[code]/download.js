@@ -11,8 +11,16 @@
  */
 
 import { list } from '@vercel/blob';
+import { timingSafeEqual } from 'crypto';
 
-const CODE_REGEX = /^[A-Z2-9]{6}$/;
+const CODE_REGEX     = /^[A-Z2-9]{6}$/;
+const VERIFIER_REGEX = /^[0-9a-f]{64}$/;
+
+/** Comparaison en temps constant de deux chaînes hex de même format. */
+function safeEqual(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string' || a.length !== b.length) return false;
+  return timingSafeEqual(Buffer.from(a), Buffer.from(b));
+}
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
@@ -55,6 +63,15 @@ export default async function handler(req, res) {
 
     if (!meta.files || !meta.files.length) {
       return res.status(410).json({ error: 'Format de transfert non supporté' });
+    }
+
+    // Preuve de connaissance du mot de passe : le ciphertext n'est servi
+    // qu'aux clients capables de dériver le verifier (anti brute-force offline).
+    if (meta.verifier) {
+      const provided = (req.headers['x-blob-verifier'] || '').toLowerCase();
+      if (!VERIFIER_REGEX.test(provided) || !safeEqual(provided, meta.verifier)) {
+        return res.status(403).json({ error: 'Mot de passe incorrect' });
+      }
     }
 
     const files = meta.files;

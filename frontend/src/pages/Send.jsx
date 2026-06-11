@@ -1,10 +1,10 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import BackButton from '../components/BackButton.jsx';
 import DropZone from '../components/DropZone.jsx';
 import ProgressBar from '../components/ProgressBar.jsx';
 import CodeDisplay from '../components/CodeDisplay.jsx';
 import { uploadEncryptedFiles, checkServerHealth } from '../api/client.js';
-import { generateTransferCode, generateSalt, deriveKeyFromPassphrase, encryptFile } from '../utils/crypto.js';
+import { generateTransferCode, generateSalt, deriveKeyAndVerifier, encryptFile } from '../utils/crypto.js';
 import { formatSize } from '../utils/format.js';
 import { useI18n } from '../i18n/I18nContext.jsx';
 
@@ -20,6 +20,15 @@ export default function Send() {
   const [result,     setResult]     = useState(null);
   const [error,      setError]      = useState('');
   const [subLabel,   setSubLabel]   = useState('');
+  const [showPass,   setShowPass]   = useState(true);
+
+  // Avertir avant de quitter : le code/mot de passe affichés sont irrécupérables
+  useEffect(() => {
+    if (status !== 'done' && status !== 'uploading' && status !== 'encrypting') return;
+    const warn = (e) => { e.preventDefault(); e.returnValue = ''; };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [status]);
 
   const totalSize    = files.reduce((s, f) => s + f.size, 0);
   const fileTooLarge = totalSize > MAX_FILE_SIZE_BYTES;
@@ -39,7 +48,7 @@ export default function Send() {
 
       const code = generateTransferCode();
       const salt = generateSalt();
-      const key  = await deriveKeyFromPassphrase(passphrase.trim(), salt, 'encrypt');
+      const { key, verifier } = await deriveKeyAndVerifier(passphrase.trim(), salt, 'encrypt');
 
       // Chiffrer chaque fichier
       const encryptedFiles = [];
@@ -59,7 +68,7 @@ export default function Send() {
       setSubLabel('');
 
       const deleteToken = await uploadEncryptedFiles(
-        code, encryptedFiles, salt, setProgress
+        code, encryptedFiles, salt, verifier, setProgress
       );
 
       setResult({ code, passphrase: passphrase.trim(), deleteToken, fileCount: files.length });
@@ -129,17 +138,42 @@ export default function Send() {
                 <span className="send-step__num">2</span>
                 <span>{t('send.step2')}</span>
               </div>
-              <input
-                id="passphrase-input"
-                type="text"
-                value={passphrase}
-                onChange={(e) => setPassphrase(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && canSend && handleSend()}
-                placeholder={t('send.placeholder')}
-                className="send-passphrase-input"
-                autoComplete="off"
-                aria-label={t('send.passphrase.aria')}
-              />
+              <div className="passphrase-row">
+                <input
+                  id="passphrase-input"
+                  type={showPass ? 'text' : 'password'}
+                  value={passphrase}
+                  onChange={(e) => setPassphrase(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && canSend && handleSend()}
+                  placeholder={t('send.placeholder')}
+                  className="send-passphrase-input"
+                  autoComplete="off"
+                  aria-label={t('send.passphrase.aria')}
+                />
+                <button
+                  type="button"
+                  className="passphrase-toggle"
+                  onClick={() => setShowPass(!showPass)}
+                  aria-label={showPass ? t('common.hidepass') : t('common.showpass')}
+                  aria-pressed={showPass}
+                >
+                  {showPass ? (
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+                         strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/>
+                      <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/>
+                      <path d="M14.12 14.12a3 3 0 1 1-4.24-4.24"/>
+                      <line x1="1" y1="1" x2="23" y2="23"/>
+                    </svg>
+                  ) : (
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+                         strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                      <circle cx="12" cy="12" r="3"/>
+                    </svg>
+                  )}
+                </button>
+              </div>
               <p className="send-step__hint">
                 {passphrase.length > 0 && passphrase.length < 6
                   ? <span className="send-step__count">{t('send.hint.count', { count: passphrase.length })}</span>

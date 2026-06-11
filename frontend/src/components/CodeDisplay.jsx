@@ -61,9 +61,14 @@ export default function CodeDisplay({ code, passphrase, deleteToken, fileCount }
       <div className="code-display__section">
         <p className="code-display__field-label">{t('code.transfer')}</p>
         <div className="code-display__code">{code}</div>
-        <button className="btn btn--outline btn--sm" onClick={() => copy(code, 'code')}>
-          {copiedWhat === 'code' ? t('code.copied') : t('code.copy.code')}
-        </button>
+        <div className="code-display__actions">
+          <button className="btn btn--outline btn--sm" onClick={() => copy(code, 'code')}>
+            {copiedWhat === 'code' ? t('code.copied') : t('code.copy.code')}
+          </button>
+          <button className="btn btn--outline btn--sm" onClick={() => copy(receiveUrl, 'link')}>
+            {copiedWhat === 'link' ? t('code.copied') : t('code.copy.link')}
+          </button>
+        </div>
       </div>
 
       <div className="code-display__section">

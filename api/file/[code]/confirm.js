@@ -18,8 +18,16 @@
  */
 
 import { list, put, del } from '@vercel/blob';
+import { timingSafeEqual } from 'crypto';
 
-const CODE_REGEX = /^[A-Z2-9]{6}$/;
+const CODE_REGEX     = /^[A-Z2-9]{6}$/;
+const VERIFIER_REGEX = /^[0-9a-f]{64}$/;
+
+/** Comparaison en temps constant de deux chaînes hex de même format. */
+function safeEqual(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string' || a.length !== b.length) return false;
+  return timingSafeEqual(Buffer.from(a), Buffer.from(b));
+}
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -51,6 +59,16 @@ export default async function handler(req, res) {
       return res.json({ ok: true, consumed: true });
     }
     const meta = await metaResponse.json();
+
+    // Preuve de connaissance du mot de passe : sans le verifier (dérivé du mot
+    // de passe via PBKDF2), impossible de consommer le quota — et donc de
+    // détruire un transfert en connaissant seulement le code.
+    if (meta.verifier) {
+      const provided = (req.headers['x-blob-verifier'] || '').toLowerCase();
+      if (!VERIFIER_REGEX.test(provided) || !safeEqual(provided, meta.verifier)) {
+        return res.status(403).json({ error: 'Verifier invalide' });
+      }
+    }
 
     const newCount     = (meta.downloadCount || 0) + 1;
     const reachedLimit = meta.maxDownloads > 0 && newCount >= meta.maxDownloads;

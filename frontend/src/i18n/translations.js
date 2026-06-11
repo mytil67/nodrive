@@ -69,6 +69,12 @@ export const translations = {
     'receive.files.count': 'fichiers',
     'receive.error.password': "Veuillez saisir le mot de passe fourni par l'expéditeur.",
     'receive.error.download': 'Téléchargement du fichier chiffré échoué',
+    'receive.error.badpassword': "Mot de passe incorrect. Vérifiez-le et réessayez — rien n'a été consommé.",
+    'receive.downloads.remaining': '{count} téléchargement(s) restant(s)',
+    'receive.saved.hint': 'Si votre navigateur a bloqué certains téléchargements, enregistrez-les ici :',
+    'receive.saved.save': 'Enregistrer',
+    'common.showpass': 'Afficher le mot de passe',
+    'common.hidepass': 'Masquer le mot de passe',
 
     // CodeDisplay
     'code.sent': 'Fichier chiffré et envoyé',
@@ -77,6 +83,7 @@ export const translations = {
     'code.password': 'Mot de passe',
     'code.copied': 'Copié',
     'code.copy.code': 'Copier le code',
+    'code.copy.link': 'Copier le lien',
     'code.copy.password': 'Copier le mot de passe',
     'code.qr.label': "Scanner depuis l'autre appareil",
     'code.hint': 'Scannez le QR code ou ouvrez',
@@ -183,6 +190,12 @@ export const translations = {
     'receive.files.count': 'files',
     'receive.error.password': 'Please enter the password provided by the sender.',
     'receive.error.download': 'Failed to download encrypted file',
+    'receive.error.badpassword': 'Incorrect password. Check it and try again — nothing was consumed.',
+    'receive.downloads.remaining': '{count} download(s) remaining',
+    'receive.saved.hint': 'If your browser blocked some downloads, save them here:',
+    'receive.saved.save': 'Save',
+    'common.showpass': 'Show password',
+    'common.hidepass': 'Hide password',
 
     // CodeDisplay
     'code.sent': 'File encrypted and sent',
@@ -191,6 +204,7 @@ export const translations = {
     'code.password': 'Password',
     'code.copied': 'Copied',
     'code.copy.code': 'Copy code',
+    'code.copy.link': 'Copy link',
     'code.copy.password': 'Copy password',
     'code.qr.label': 'Scan from another device',
     'code.hint': 'Scan the QR code or open',

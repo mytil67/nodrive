@@ -23,10 +23,11 @@ export async function checkServerHealth() {
  * @param {string} code
  * @param {{ encrypted: Uint8Array, name: string, size: number }[]} encryptedFiles
  * @param {string} salt
+ * @param {string} verifier - preuve de mot de passe (hex), stockée dans les métadonnées
  * @param {(pct: number) => void} onProgress
  * @returns {Promise<string|null>} deleteToken
  */
-export async function uploadEncryptedFiles(code, encryptedFiles, salt, onProgress) {
+export async function uploadEncryptedFiles(code, encryptedFiles, salt, verifier, onProgress) {
   const fileTotal = encryptedFiles.length;
 
   // Calculer le nombre total de chunks pour la progression
@@ -51,7 +52,7 @@ export async function uploadEncryptedFiles(code, encryptedFiles, salt, onProgres
 
       const isLastOverall = (fi === fileTotal - 1) && (ci === chunkTotal - 1);
 
-      const result = await sendChunk(code, chunk, ci, chunkTotal, fi, fileTotal, salt,
+      const result = await sendChunk(code, chunk, ci, chunkTotal, fi, fileTotal, salt, verifier,
         isLastOverall ? encryptedFiles.map(f => ({ name: f.name, size: f.size })) : null
       );
 
@@ -84,7 +85,7 @@ function encodeFilesHeader(fileMetas) {
 /**
  * Envoie un chunk individuel via XHR.
  */
-function sendChunk(code, chunkData, chunkIndex, chunkTotal, fileIndex, fileTotal, salt, fileMetas) {
+function sendChunk(code, chunkData, chunkIndex, chunkTotal, fileIndex, fileTotal, salt, verifier, fileMetas) {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open('POST', '/api/upload/chunk');
@@ -100,6 +101,7 @@ function sendChunk(code, chunkData, chunkIndex, chunkTotal, fileIndex, fileTotal
     // Le serveur a besoin de ces headers uniquement sur le dernier chunk du dernier fichier
     if (fileMetas) {
       xhr.setRequestHeader('x-blob-salt', salt);
+      xhr.setRequestHeader('x-blob-verifier', verifier);
       xhr.setRequestHeader('x-blob-files', encodeFilesHeader(fileMetas));
     }
 
@@ -124,7 +126,11 @@ function sendChunk(code, chunkData, chunkIndex, chunkTotal, fileIndex, fileTotal
 export async function getFileInfo(code) {
   const res  = await fetch(`/api/file/${encodeURIComponent(code)}/info`);
   const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(body.error || `Erreur HTTP ${res.status}`);
+  if (!res.ok) {
+    const err = new Error(body.error || `Erreur HTTP ${res.status}`);
+    err.status = res.status; // permet un mapping fiable côté UI, indépendant de la langue
+    throw err;
+  }
   return body;
 }
 
@@ -134,12 +140,21 @@ export async function getFileInfo(code) {
  * Best-effort : un échec ne doit pas casser l'UX, le fichier reste protégé par
  * son expiration.
  */
-export async function confirmDownload(code) {
-  try {
-    await fetch(`/api/file/${encodeURIComponent(code)}/confirm`, { method: 'POST' });
-  } catch {
-    // silencieux — l'expiration + le cron de nettoyage restent le filet ultime
+export async function confirmDownload(code, verifier) {
+  // Quelques tentatives : un échec laisserait le quota non consommé.
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const res = await fetch(`/api/file/${encodeURIComponent(code)}/confirm`, {
+        method:  'POST',
+        headers: { 'x-blob-verifier': verifier },
+      });
+      if (res.ok || res.status < 500) return; // 4xx : inutile de réessayer
+    } catch {
+      // erreur réseau → retry
+    }
+    await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
   }
+  // silencieux — l'expiration + le cron de nettoyage restent le filet ultime
 }
 
 export async function cancelTransfer(code, deleteToken) {

@@ -108,17 +108,21 @@ function generateSalt() {
   return Array.from(bytes).map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-async function deriveKey(passphrase, saltHex, usage) {
+// Dérive la clé AES (256 premiers bits PBKDF2) + un verifier hex (256 bits
+// suivants) servant de preuve de mot de passe auprès du serveur.
+async function deriveKeyAndVerifier(passphrase, saltHex, usage) {
   const enc       = new TextEncoder();
   const saltBytes = new Uint8Array(saltHex.match(/.{2}/g).map((b) => parseInt(b, 16)));
-  const material  = await subtle.importKey('raw', enc.encode(passphrase), 'PBKDF2', false, ['deriveKey']);
-  return subtle.deriveKey(
+  const material  = await subtle.importKey('raw', enc.encode(passphrase), 'PBKDF2', false, ['deriveBits']);
+  const bits      = await subtle.deriveBits(
     { name: 'PBKDF2', salt: saltBytes, iterations: 600_000, hash: 'SHA-256' },
     material,
-    { name: 'AES-GCM', length: 256 },
-    false,
-    [usage]
+    512
   );
+  const bytes = new Uint8Array(bits);
+  const key   = await subtle.importKey('raw', bytes.slice(0, 32), { name: 'AES-GCM', length: 256 }, false, [usage]);
+  const verifier = Array.from(bytes.slice(32)).map((b) => b.toString(16).padStart(2, '0')).join('');
+  return { key, verifier };
 }
 
 async function encryptBuffer(buffer, key) {
@@ -157,7 +161,7 @@ async function cmdSend({ target, password, url }) {
   process.stdout.write('\nChiffrement…  ');
   const code      = generateCode();
   const salt      = generateSalt();
-  const key       = await deriveKey(password, salt, 'encrypt');
+  const { key, verifier } = await deriveKeyAndVerifier(password, salt, 'encrypt');
   const encrypted = await encryptBuffer(fileBuffer, key);
   process.stdout.write('✓\n');
 
@@ -183,8 +187,9 @@ async function cmdSend({ target, password, url }) {
       'x-file-total':   '1',
     };
     if (isLast) {
-      headers['x-blob-salt']  = salt;
-      headers['x-blob-files'] = JSON.stringify([{ name: fileName, size: fileSize }]);
+      headers['x-blob-salt']     = salt;
+      headers['x-blob-verifier'] = verifier;
+      headers['x-blob-files']    = Buffer.from(JSON.stringify([{ name: fileName, size: fileSize }]), 'utf-8').toString('base64');
     }
 
     const res = await fetch(`${url}/api/upload/chunk`, {
@@ -235,7 +240,8 @@ async function cmdReceive({ target, password, output, url }) {
 
   if (!password) password = await prompt('Mot de passe : ');
 
-  const key = await deriveKey(password, info.salt, 'decrypt');
+  const { key, verifier } = await deriveKeyAndVerifier(password, info.salt, 'decrypt');
+  const dlHeaders = { 'x-blob-verifier': verifier };
   const outDir = resolve(output);
 
   for (let fi = 0; fi < fileCount; fi++) {
@@ -248,7 +254,7 @@ async function cmdReceive({ target, password, output, url }) {
       // Format chunked — télécharger tous les chunks et concaténer
       const chunks = [];
       for (let ci = 0; ci < file.chunkCount; ci++) {
-        const dlRes = await fetch(`${url}/api/file/${code}/download?file=${fi}&chunk=${ci}`);
+        const dlRes = await fetch(`${url}/api/file/${code}/download?file=${fi}&chunk=${ci}`, { headers: dlHeaders });
         if (!dlRes.ok) {
           const b = await dlRes.json().catch(() => ({}));
           process.stdout.write('\n'); console.error(`Erreur : ${b.error || dlRes.status}`); process.exit(1);
@@ -261,7 +267,7 @@ async function cmdReceive({ target, password, output, url }) {
       for (const c of chunks) { encrypted.set(c, offset); offset += c.length; }
     } else {
       // Ancien format blob unique
-      const dlRes = await fetch(`${url}/api/file/${code}/download?file=${fi}&chunk=0`);
+      const dlRes = await fetch(`${url}/api/file/${code}/download?file=${fi}&chunk=0`, { headers: dlHeaders });
       if (!dlRes.ok) {
         const b = await dlRes.json().catch(() => ({}));
         process.stdout.write('\n'); console.error(`Erreur : ${b.error || dlRes.status}`); process.exit(1);
@@ -280,6 +286,12 @@ async function cmdReceive({ target, password, output, url }) {
     writeFileSync(outputPath, Buffer.from(decrypted));
     console.log(`  → ${outputPath}`);
   }
+
+  // Confirmer le téléchargement (consomme le quota côté serveur)
+  await fetch(`${url}/api/file/${code}/confirm`, {
+    method: 'POST',
+    headers: { 'x-blob-verifier': verifier },
+  }).catch(() => {});
 
   console.log(`\n${fileCount > 1 ? `${fileCount} fichiers sauvegardés` : 'Fichier sauvegardé'} !\n`);
 }
