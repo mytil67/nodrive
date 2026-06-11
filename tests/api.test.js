@@ -131,7 +131,18 @@ beforeEach(() => {
   vi.clearAllMocks();
   process.env.BLOB_READ_WRITE_TOKEN = 'test-token';
   process.env.CRON_SECRET = 'test-cron-secret';
+  process.env.INFO_MIN_RESPONSE_MS = '0'; // pas de plancher anti-timing en test (vitesse)
 });
+
+/** Métadonnée multi-chunks (un seul fichier découpé en N chunks). */
+function multiChunkMetadata(chunkCount, overrides = {}) {
+  const chunkUrls = Array.from({ length: chunkCount }, (_, c) =>
+    `https://blob.test/transfers/AB3K7P/f000-chunk-${String(c).padStart(3, '0')}.enc`);
+  return createTestMetadata({
+    files: [{ originalName: 'big.bin', size: 1024 * chunkCount, chunkCount, chunkUrls }],
+    ...overrides,
+  });
+}
 
 // ── Tests info endpoint ─────────────────────────────────────────────────────
 
@@ -332,27 +343,103 @@ describe('GET /api/file/:code/download', async () => {
     expect(res.statusCode).toBe(410);
   });
 
-  it('ne consomme PAS le quota (lecture seule) lors du téléchargement', async () => {
-    seedTransfer(createTestMetadata({ downloadCount: 0, maxDownloads: 1 }));
-    const req = createMockReq('GET', { code: 'AB3K7P', file: '0', chunk: '0' });
+  it('ne consomme PAS le quota sur un chunk NON final', async () => {
+    seedTransfer(multiChunkMetadata(2, { downloadCount: 0, maxDownloads: 2 }));
+    const req = createMockReq('GET', { code: 'AB3K7P', file: '0', chunk: '0' }); // chunk 0/2
     const res = createMockRes();
 
     await downloadHandler(req, res);
 
     expect(res.statusCode).toBe(200);
-    // Le compteur ne doit pas avoir bougé et le transfert ne doit pas être supprimé
+    // Tant que le chunk final n'est pas servi, rien n'est consommé.
     const meta = JSON.parse(blobStore.get('metadata/AB3K7P.json'));
     expect(meta.downloadCount).toBe(0);
     expect(blobStore.has('metadata/AB3K7P.json')).toBe(true);
   });
 });
 
+// ── Tests download : consommation du quota (chunk final) ────────────────────
+
+describe('GET /api/file/:code/download — consommation du quota', async () => {
+  const { default: downloadHandler } = await import('../api/file/[code]/download.js');
+  const VERIFIER = 'c'.repeat(64);
+
+  it('incrémente le compteur quand le chunk FINAL est servi (sans atteindre le quota)', async () => {
+    seedTransfer(multiChunkMetadata(2, { downloadCount: 0, maxDownloads: 3 }));
+    const req = createMockReq('GET', { code: 'AB3K7P', file: '0', chunk: '1' }); // chunk final
+    const res = createMockRes();
+
+    await downloadHandler(req, res);
+
+    expect(res.statusCode).toBe(200);
+    const meta = JSON.parse(blobStore.get('metadata/AB3K7P.json'));
+    expect(meta.downloadCount).toBe(1);
+    expect(blobStore.has('metadata/AB3K7P.json')).toBe(true);
+  });
+
+  it('purge tout le transfert quand le chunk final atteint le quota', async () => {
+    seedTransfer(createTestMetadata({ downloadCount: 0, maxDownloads: 1 })); // 1 seul chunk = final
+    const req = createMockReq('GET', { code: 'AB3K7P', file: '0', chunk: '0' });
+    const res = createMockRes();
+
+    await downloadHandler(req, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(res._ended).toBe(true);
+    expect(blobStore.has('metadata/AB3K7P.json')).toBe(false);
+    expect(blobStore.has('transfers/AB3K7P/f000-chunk-000.enc')).toBe(false);
+  });
+
+  it('le chunk final du DERNIER fichier consomme (multi-fichier)', async () => {
+    seedTransfer(createTestMetadata({
+      downloadCount: 0, maxDownloads: 3,
+      files: [
+        { originalName: 'a.pdf', size: 500, chunkCount: 1, chunkUrls: ['https://blob.test/transfers/AB3K7P/f000-chunk-000.enc'] },
+        { originalName: 'b.jpg', size: 800, chunkCount: 1, chunkUrls: ['https://blob.test/transfers/AB3K7P/f001-chunk-000.enc'] },
+      ],
+    }));
+    // chunk final du fichier 0 → PAS le dernier fichier → ne consomme pas
+    await downloadHandler(createMockReq('GET', { code: 'AB3K7P', file: '0', chunk: '0' }), createMockRes());
+    expect(JSON.parse(blobStore.get('metadata/AB3K7P.json')).downloadCount).toBe(0);
+    // chunk final du dernier fichier → consomme
+    await downloadHandler(createMockReq('GET', { code: 'AB3K7P', file: '1', chunk: '0' }), createMockRes());
+    expect(JSON.parse(blobStore.get('metadata/AB3K7P.json')).downloadCount).toBe(1);
+  });
+
+  it('ne consomme rien si le verifier est invalide (rejet 403 avant tout service)', async () => {
+    seedTransfer(createTestMetadata({ verifier: VERIFIER, downloadCount: 0, maxDownloads: 1 }));
+    const req = createMockReq('GET', { code: 'AB3K7P', file: '0', chunk: '0' }); // sans verifier
+    const res = createMockRes();
+
+    await downloadHandler(req, res);
+
+    expect(res.statusCode).toBe(403);
+    const meta = JSON.parse(blobStore.get('metadata/AB3K7P.json'));
+    expect(meta.downloadCount).toBe(0);
+    expect(blobStore.has('metadata/AB3K7P.json')).toBe(true);
+  });
+
+  it('téléchargements répétés : le quota finit par être épuisé même sans /confirm', async () => {
+    seedTransfer(createTestMetadata({ downloadCount: 0, maxDownloads: 2 })); // 1 chunk = final
+    // 1er téléchargement complet → count 1
+    await downloadHandler(createMockReq('GET', { code: 'AB3K7P', file: '0', chunk: '0' }), createMockRes());
+    expect(JSON.parse(blobStore.get('metadata/AB3K7P.json')).downloadCount).toBe(1);
+    // 2e téléchargement complet → atteint le quota → purge
+    await downloadHandler(createMockReq('GET', { code: 'AB3K7P', file: '0', chunk: '0' }), createMockRes());
+    expect(blobStore.has('metadata/AB3K7P.json')).toBe(false);
+    // 3e tentative → transfert disparu
+    const res3 = createMockRes();
+    await downloadHandler(createMockReq('GET', { code: 'AB3K7P', file: '0', chunk: '0' }), res3);
+    expect(res3.statusCode).toBe(404);
+  });
+});
+
 // ── Tests confirm endpoint ──────────────────────────────────────────────────
 
-describe('POST /api/file/:code/confirm', async () => {
+describe('POST /api/file/:code/confirm (déprécié — no-op)', async () => {
   const { default: confirmHandler } = await import('../api/file/[code]/confirm.js');
 
-  it('incrémente le compteur sans supprimer quand le quota n\'est pas atteint', async () => {
+  it('répond 200 SANS muter le transfert (consommation déléguée à /download)', async () => {
     seedTransfer(createTestMetadata({ downloadCount: 0, maxDownloads: 3 }));
     const req = createMockReq('POST', { code: 'AB3K7P' });
     const res = createMockRes();
@@ -360,13 +447,14 @@ describe('POST /api/file/:code/confirm', async () => {
     await confirmHandler(req, res);
 
     expect(res.statusCode).toBe(200);
-    expect(res._body.consumed).toBe(false);
+    expect(res._body.deprecated).toBe(true);
+    // Aucun effet de bord : compteur inchangé, transfert toujours présent.
     const meta = JSON.parse(blobStore.get('metadata/AB3K7P.json'));
-    expect(meta.downloadCount).toBe(1);
+    expect(meta.downloadCount).toBe(0);
     expect(blobStore.has('metadata/AB3K7P.json')).toBe(true);
   });
 
-  it('supprime tout le transfert quand le quota est atteint', async () => {
+  it('ne supprime pas, même quand le quota serait atteint (anti double comptage)', async () => {
     seedTransfer(createTestMetadata({ downloadCount: 0, maxDownloads: 1 }));
     const req = createMockReq('POST', { code: 'AB3K7P' });
     const res = createMockRes();
@@ -374,19 +462,8 @@ describe('POST /api/file/:code/confirm', async () => {
     await confirmHandler(req, res);
 
     expect(res.statusCode).toBe(200);
-    expect(res._body.consumed).toBe(true);
-    expect(blobStore.has('metadata/AB3K7P.json')).toBe(false);
-    expect(blobStore.has('transfers/AB3K7P/f000-chunk-000.enc')).toBe(false);
-  });
-
-  it('est idempotent sur un code déjà consommé (404 → ok)', async () => {
-    const req = createMockReq('POST', { code: 'ZZZZZZ' });
-    const res = createMockRes();
-
-    await confirmHandler(req, res);
-
-    expect(res.statusCode).toBe(200);
-    expect(res._body.consumed).toBe(true);
+    expect(blobStore.has('metadata/AB3K7P.json')).toBe(true);
+    expect(blobStore.has('transfers/AB3K7P/f000-chunk-000.enc')).toBe(true);
   });
 
   it('retourne 400 pour un code mal formaté', async () => {
@@ -406,55 +483,33 @@ describe('POST /api/file/:code/confirm', async () => {
 
     expect(res.statusCode).toBe(405);
   });
+});
 
-  // ── Verifier (preuve de mot de passe) ──
-  const VERIFIER = 'c'.repeat(64);
+// ── Tests info : temps de réponse uniforme (anti-énumération) ────────────────
 
-  it('refuse (403) la confirmation sans verifier quand le transfert en a un', async () => {
-    seedTransfer(createTestMetadata({ verifier: VERIFIER }));
-    const req = createMockReq('POST', { code: 'AB3K7P' });
+describe('GET /api/file/:code/info — temps de réponse uniforme', async () => {
+  const { default: infoHandler } = await import('../api/file/[code]/info.js');
+
+  async function measure(code) {
+    const req = createMockReq('GET', { code });
     const res = createMockRes();
+    const t0  = Date.now();
+    await infoHandler(req, res);
+    return Date.now() - t0;
+  }
 
-    await confirmHandler(req, res);
+  it('un code valide ne répond pas plus vite qu\'un code inexistant', async () => {
+    process.env.INFO_MIN_RESPONSE_MS = '200';
+    seedTransfer(); // AB3K7P existe
 
-    expect(res.statusCode).toBe(403);
-    // Rien ne doit avoir été consommé ni supprimé
-    const meta = JSON.parse(blobStore.get('metadata/AB3K7P.json'));
-    expect(meta.downloadCount).toBe(0);
-  });
+    const tValid   = await measure('AB3K7P');
+    const tMissing = await measure('ZZZZZZ');
 
-  it('refuse (403) un verifier incorrect', async () => {
-    seedTransfer(createTestMetadata({ verifier: VERIFIER }));
-    const req = createMockReq('POST', { code: 'AB3K7P' }, { 'x-blob-verifier': 'd'.repeat(64) });
-    const res = createMockRes();
-
-    await confirmHandler(req, res);
-
-    expect(res.statusCode).toBe(403);
-    expect(blobStore.has('metadata/AB3K7P.json')).toBe(true);
-  });
-
-  it('accepte le bon verifier et consomme le quota', async () => {
-    seedTransfer(createTestMetadata({ verifier: VERIFIER, maxDownloads: 1 }));
-    const req = createMockReq('POST', { code: 'AB3K7P' }, { 'x-blob-verifier': VERIFIER });
-    const res = createMockRes();
-
-    await confirmHandler(req, res);
-
-    expect(res.statusCode).toBe(200);
-    expect(res._body.consumed).toBe(true);
-    expect(blobStore.has('metadata/AB3K7P.json')).toBe(false);
-  });
-
-  it('reste compatible avec les anciens transferts sans verifier', async () => {
-    seedTransfer(createTestMetadata({ maxDownloads: 3 }));
-    const req = createMockReq('POST', { code: 'AB3K7P' });
-    const res = createMockRes();
-
-    await confirmHandler(req, res);
-
-    expect(res.statusCode).toBe(200);
-    expect(res._body.consumed).toBe(false);
+    // Les deux respectent le plancher → pas d'oracle « existe = plus rapide ».
+    expect(tValid).toBeGreaterThanOrEqual(200);
+    expect(tMissing).toBeGreaterThanOrEqual(200);
+    // L'écart ne trahit pas la validité (seul le jitter ~80ms joue).
+    expect(Math.abs(tValid - tMissing)).toBeLessThan(150);
   });
 });
 

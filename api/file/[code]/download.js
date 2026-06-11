@@ -4,13 +4,17 @@
  * Proxy serveur pour télécharger un chunk de fichier chiffré.
  * Paramètres query : ?file=0&chunk=0
  *
- * Gestion du quota : ce endpoint ne fait que VÉRIFIER le quota (lecture seule).
- * La consommation réelle (incrément + suppression) est déclenchée par le client
- * via POST .../confirm, une fois le déchiffrement réussi. Ainsi un mauvais mot
- * de passe ou un téléchargement interrompu ne consomme ni ne détruit rien.
+ * Gestion du quota : le quota est consommé côté serveur quand le DERNIER chunk
+ * du dernier fichier est servi — c'est-à-dire quand le destinataire a récupéré
+ * l'intégralité du ciphertext. Impossible d'obtenir le fichier complet sans
+ * demander ce chunk, donc la limite est réellement appliquée sans dépendre d'un
+ * appel client. Un mauvais mot de passe est rejeté (403) AVANT tout service, et
+ * un téléchargement interrompu n'atteint jamais le chunk final → rien n'est
+ * consommé ni détruit dans ces cas. (L'endpoint .../confirm est conservé en
+ * no-op pour compatibilité avec d'anciens clients.)
  */
 
-import { list } from '@vercel/blob';
+import { list, put, del } from '@vercel/blob';
 import { timingSafeEqual } from 'crypto';
 
 const CODE_REGEX     = /^[A-Z2-9]{6}$/;
@@ -20,6 +24,34 @@ const VERIFIER_REGEX = /^[0-9a-f]{64}$/;
 function safeEqual(a, b) {
   if (typeof a !== 'string' || typeof b !== 'string' || a.length !== b.length) return false;
   return timingSafeEqual(Buffer.from(a), Buffer.from(b));
+}
+
+/**
+ * Consomme un téléchargement : incrémente le compteur, et purge tout le
+ * transfert (métadonnées + chunks) si le quota est atteint. Appelé une seule
+ * fois par récupération complète, après que le chunk final a été servi.
+ */
+async function consumeDownload(meta, metaBlob) {
+  const newCount     = (meta.downloadCount || 0) + 1;
+  const reachedLimit = meta.maxDownloads > 0 && newCount >= meta.maxDownloads;
+
+  if (reachedLimit) {
+    const urls = [metaBlob.url];
+    for (const f of meta.files || []) {
+      if (f.chunkUrls) urls.push(...f.chunkUrls);
+    }
+    await del(urls);
+    console.log(`[download] Transfert ${meta.code} consommé et purgé (quota atteint)`);
+    return;
+  }
+
+  await put(metaBlob.pathname, JSON.stringify({ ...meta, downloadCount: newCount }, null, 2), {
+    access:          'private',
+    contentType:     'application/json',
+    addRandomSuffix: false,
+    allowOverwrite:  true,
+  });
+  console.log(`[download] Transfert ${meta.code} : téléchargement ${newCount}/${meta.maxDownloads}`);
 }
 
 export default async function handler(req, res) {
@@ -86,8 +118,8 @@ export default async function handler(req, res) {
       return res.status(410).json({ error: 'Fichier sans chunks' });
     }
 
-    // Vérification du quota en LECTURE SEULE. Aucune écriture ici : la
-    // consommation a lieu via POST .../confirm après déchiffrement réussi.
+    // Garde quota : si déjà atteint, on ne sert rien (le transfert a en principe
+    // déjà été purgé, mais on protège le cas où la purge a échoué).
     if (meta.maxDownloads > 0 && meta.downloadCount >= meta.maxDownloads) {
       return res.status(410).json({ error: 'Nombre maximum de téléchargements atteint' });
     }
@@ -96,6 +128,12 @@ export default async function handler(req, res) {
     if (chunkIndex >= file.chunkUrls.length) {
       return res.status(400).json({ error: 'Index de chunk invalide' });
     }
+
+    // Le chunk final du dernier fichier = récupération complète du ciphertext.
+    // C'est lui qui consommera le quota une fois le flux terminé (voir plus bas).
+    const isFinalChunk =
+      (fileIndex === files.length - 1) &&
+      (chunkIndex === file.chunkUrls.length - 1);
 
     // Télécharger et streamer le chunk
     const chunkUrl = file.chunkUrls[chunkIndex];
@@ -113,17 +151,30 @@ export default async function handler(req, res) {
     res.setHeader('X-Content-Type-Options', 'nosniff');
 
     const reader = chunkResponse.body.getReader();
+    let streamOk = false;
     try {
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
         res.write(Buffer.from(value));
       }
-      res.end();
+      streamOk = true;
     } catch (streamErr) {
       console.error(`[download] Erreur stream :`, streamErr.message);
-      if (!res.writableEnded) res.end();
     }
+
+    // Consommer le quota UNIQUEMENT si le ciphertext complet vient d'être servi
+    // (chunk final + flux terminé sans erreur). Le verifier ayant déjà été validé
+    // plus haut, atteindre ce point prouve la connaissance du mot de passe.
+    if (streamOk && isFinalChunk && meta.maxDownloads > 0) {
+      try {
+        await consumeDownload(meta, metaBlobs[0]);
+      } catch (e) {
+        console.error('[download] Consommation quota échouée :', e.message);
+      }
+    }
+
+    if (!res.writableEnded) res.end();
 
   } catch (err) {
     console.error('[download] Erreur :', err.message);

@@ -134,29 +134,6 @@ export async function getFileInfo(code) {
   return body;
 }
 
-/**
- * Confirme un téléchargement réussi (à appeler UNIQUEMENT après un déchiffrement
- * réussi de tous les fichiers). Déclenche la consommation du quota côté serveur.
- * Best-effort : un échec ne doit pas casser l'UX, le fichier reste protégé par
- * son expiration.
- */
-export async function confirmDownload(code, verifier) {
-  // Quelques tentatives : un échec laisserait le quota non consommé.
-  for (let attempt = 0; attempt < 3; attempt++) {
-    try {
-      const res = await fetch(`/api/file/${encodeURIComponent(code)}/confirm`, {
-        method:  'POST',
-        headers: { 'x-blob-verifier': verifier },
-      });
-      if (res.ok || res.status < 500) return; // 4xx : inutile de réessayer
-    } catch {
-      // erreur réseau → retry
-    }
-    await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
-  }
-  // silencieux — l'expiration + le cron de nettoyage restent le filet ultime
-}
-
 export async function cancelTransfer(code, deleteToken) {
   const res = await fetch(`/api/file/${encodeURIComponent(code)}/delete`, {
     method: 'POST',
