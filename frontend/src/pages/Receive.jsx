@@ -20,11 +20,21 @@ export default function Receive() {
   const [error,        setError]        = useState('');
   const [savedFiles,   setSavedFiles]   = useState([]); // { name, url } — blobs déchiffrés
   const [showPass,     setShowPass]     = useState(false);
+  const [receivedText, setReceivedText] = useState(null); // contenu déchiffré (mode texte)
+  const [copiedText,   setCopiedText]   = useState(false);
 
   useEffect(() => {
     if (urlCode) lookupCode(urlCode);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [urlCode]);
+
+  // Transfert texte (pastebin) → thème orange dès l'aperçu
+  const isText = fileInfo?.kind === 'text';
+  useEffect(() => {
+    if (isText) document.documentElement.setAttribute('data-mode', 'text');
+    else document.documentElement.removeAttribute('data-mode');
+    return () => document.documentElement.removeAttribute('data-mode');
+  }, [isText]);
 
   async function lookupCode(code = inputCode) {
     const normalized = code.trim().toUpperCase();
@@ -173,6 +183,15 @@ export default function Receive() {
 
         const decryptedBuffer = await decryptFile(encryptedData, cryptoKey);
 
+        // Mode texte (pastebin) : affichage inline, pas de téléchargement auto.
+        // On garde quand même un blob pour le bouton "Télécharger en .txt".
+        if (file.kind === 'text') {
+          setReceivedText(new TextDecoder().decode(decryptedBuffer));
+          const blob = new Blob([decryptedBuffer], { type: 'text/plain' });
+          downloaded.push({ name: file.originalName, url: URL.createObjectURL(blob) });
+          continue;
+        }
+
         // Conserver le blob : les navigateurs bloquent les téléchargements
         // automatiques multiples — on propose aussi un bouton par fichier.
         const blob = new Blob([decryptedBuffer]);
@@ -204,6 +223,8 @@ export default function Receive() {
   function reset() {
     for (const f of savedFiles) URL.revokeObjectURL(f.url);
     setSavedFiles([]);
+    setReceivedText(null);
+    setCopiedText(false);
     setInputCode('');
     setPassphrase('');
     setFileInfo(null);
@@ -274,10 +295,13 @@ export default function Receive() {
             {/* Aperçu sans les noms : ils restent confidentiels tant que le mot
                 de passe (verifier) n'est pas fourni — voir api/.../info.js (#3). */}
             <p className="file-name">
-              {fileCount} {fileCount > 1 ? t('receive.files.count') : t('receive.files.one')}
+              {isText
+                ? t('receive.text.preview')
+                : `${fileCount} ${fileCount > 1 ? t('receive.files.count') : t('receive.files.one')}`
+              }
             </p>
             <p className="file-meta">{formatSize(totalSize)}</p>
-            <p className="file-names-hidden">{t('receive.names.hidden')}</p>
+            {!isText && <p className="file-names-hidden">{t('receive.names.hidden')}</p>}
             <p className="file-expiry-info">
               <span className="file-expiry-info__single">{t('receive.expires.single')}</span>
               <span className="file-expiry-info__time">{t('receive.expires.time', { remaining: formatRemaining() })}</span>
@@ -330,7 +354,7 @@ export default function Receive() {
             onClick={handleDownload}
             disabled={!passphrase.trim()}
           >
-            {t('receive.download')}
+            {isText ? t('receive.download.text') : t('receive.download')}
           </button>
         </section>
       )}
@@ -366,12 +390,40 @@ export default function Receive() {
             </svg>
           </div>
           <p className="send-progress-card__title">
-            {fileCount > 1 ? t('receive.success.multi', { count: fileCount }) : t('receive.success')}
+            {receivedText !== null
+              ? t('receive.text.success')
+              : fileCount > 1 ? t('receive.success.multi', { count: fileCount }) : t('receive.success')}
           </p>
           <p className="send-progress-card__sub send-progress-card__sub--success">
-            {fileCount > 1 ? t('receive.success.multi.sub') : t('receive.success.sub')}
+            {receivedText !== null
+              ? t('receive.text.success.sub')
+              : fileCount > 1 ? t('receive.success.multi.sub') : t('receive.success.sub')}
           </p>
-          {savedFiles.length > 1 && (
+          {receivedText !== null && (
+            <div className="text-result">
+              <pre className="text-result__content">{receivedText}</pre>
+              <div className="text-result__actions">
+                <button
+                  className="btn btn--outline btn--sm"
+                  onClick={async () => {
+                    try {
+                      await navigator.clipboard.writeText(receivedText);
+                      setCopiedText(true);
+                      setTimeout(() => setCopiedText(false), 2500);
+                    } catch {}
+                  }}
+                >
+                  {copiedText ? t('code.copied') : t('receive.text.copy')}
+                </button>
+                {savedFiles[0] && (
+                  <a className="btn btn--outline btn--sm" href={savedFiles[0].url} download={savedFiles[0].name}>
+                    {t('receive.text.savetxt')}
+                  </a>
+                )}
+              </div>
+            </div>
+          )}
+          {receivedText === null && savedFiles.length > 1 && (
             <>
               <p className="saved-files__hint">{t('receive.saved.hint')}</p>
               <ul className="file-list file-list--receive">

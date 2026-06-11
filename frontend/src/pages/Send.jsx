@@ -10,10 +10,13 @@ import { useI18n } from '../i18n/I18nContext.jsx';
 
 const MAX_FILE_SIZE_MB    = parseInt(import.meta.env.VITE_MAX_FILE_SIZE_MB || '25', 10);
 const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
+const MAX_TEXT_BYTES      = 100 * 1024; // 100 Ko — largement assez pour des snippets
 
 export default function Send() {
   const { t } = useI18n();
+  const [mode,       setMode]       = useState('files'); // 'files' | 'text'
   const [files,      setFiles]      = useState([]);
+  const [text,       setText]       = useState('');
   const [passphrase, setPassphrase] = useState('');
   const [progress,   setProgress]   = useState(0);
   const [status,     setStatus]     = useState('idle');
@@ -21,6 +24,13 @@ export default function Send() {
   const [error,      setError]      = useState('');
   const [subLabel,   setSubLabel]   = useState('');
   const [showPass,   setShowPass]   = useState(true);
+
+  // Mode texte → thème orange sur toute l'interface (variables CSS)
+  useEffect(() => {
+    if (mode === 'text') document.documentElement.setAttribute('data-mode', 'text');
+    else document.documentElement.removeAttribute('data-mode');
+    return () => document.documentElement.removeAttribute('data-mode');
+  }, [mode]);
 
   // Avertir avant de quitter : le code/mot de passe affichés sont irrécupérables
   useEffect(() => {
@@ -32,7 +42,13 @@ export default function Send() {
 
   const totalSize    = files.reduce((s, f) => s + f.size, 0);
   const fileTooLarge = totalSize > MAX_FILE_SIZE_BYTES;
-  const canSend      = files.length > 0 && !fileTooLarge && passphrase.trim().length >= 6;
+  const textBytes    = mode === 'text' ? new TextEncoder().encode(text).length : 0;
+  const textTooLarge = textBytes > MAX_TEXT_BYTES;
+  const canSend      = passphrase.trim().length >= 6 && (
+    mode === 'text'
+      ? text.trim().length > 0 && !textTooLarge
+      : files.length > 0 && !fileTooLarge
+  );
 
   async function handleSend() {
     if (!canSend) return;
@@ -50,17 +66,28 @@ export default function Send() {
       const salt = generateSalt();
       const { key, verifier } = await deriveKeyAndVerifier(passphrase.trim(), salt, 'encrypt');
 
-      // Chiffrer chaque fichier
+      // Chiffrer le contenu : fichiers sélectionnés, ou texte collé (pastebin)
       const encryptedFiles = [];
-      for (let i = 0; i < files.length; i++) {
-        setSubLabel(`${t('send.encrypting.file')} ${i + 1}/${files.length}…`);
-        const buffer    = await files[i].arrayBuffer();
-        const encrypted = await encryptFile(buffer, key);
+      if (mode === 'text') {
+        const bytes     = new TextEncoder().encode(text);
+        const encrypted = await encryptFile(bytes.buffer, key);
         encryptedFiles.push({
           encrypted,
-          name: files[i].name,
-          size: files[i].size,
+          name: 'snippet.txt',
+          size: bytes.length,
+          kind: 'text',
         });
+      } else {
+        for (let i = 0; i < files.length; i++) {
+          setSubLabel(`${t('send.encrypting.file')} ${i + 1}/${files.length}…`);
+          const buffer    = await files[i].arrayBuffer();
+          const encrypted = await encryptFile(buffer, key);
+          encryptedFiles.push({
+            encrypted,
+            name: files[i].name,
+            size: files[i].size,
+          });
+        }
       }
 
       setStatus('uploading');
@@ -71,7 +98,13 @@ export default function Send() {
         code, encryptedFiles, salt, verifier, setProgress
       );
 
-      setResult({ code, passphrase: passphrase.trim(), deleteToken, fileCount: files.length });
+      setResult({
+        code,
+        passphrase: passphrase.trim(),
+        deleteToken,
+        fileCount: encryptedFiles.length,
+        kind: mode === 'text' ? 'text' : 'files',
+      });
       setStatus('done');
 
     } catch (err) {
@@ -82,6 +115,7 @@ export default function Send() {
 
   function reset() {
     setFiles([]);
+    setText('');
     setPassphrase('');
     setProgress(0);
     setStatus('idle');
@@ -109,25 +143,79 @@ export default function Send() {
             <h1>{t('send.title')}</h1>
           </header>
 
+          <div className="mode-toggle" role="group" aria-label={t('send.mode.aria')}>
+            <button
+              type="button"
+              className="mode-toggle__btn"
+              aria-pressed={mode === 'files'}
+              onClick={() => setMode('files')}
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+                   strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                <polyline points="14 2 14 8 20 8"/>
+              </svg>
+              {t('send.mode.files')}
+            </button>
+            <button
+              type="button"
+              className="mode-toggle__btn"
+              aria-pressed={mode === 'text'}
+              onClick={() => setMode('text')}
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+                   strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <polyline points="4 17 10 11 4 5"/>
+                <line x1="12" y1="19" x2="20" y2="19"/>
+              </svg>
+              {t('send.mode.text')}
+            </button>
+          </div>
+
           <div className="send-form">
             <div className="send-step">
               <div className="send-step__label">
                 <span className="send-step__num">1</span>
-                <span>{t('send.step1')}</span>
+                <span>{mode === 'text' ? t('send.step1.text') : t('send.step1')}</span>
               </div>
-              <DropZone files={files} onFiles={setFiles} />
-              {fileTooLarge && (
-                <p className="send-step__error">
-                  {t('send.error.toolarge', { size: formatSize(totalSize), max: MAX_FILE_SIZE_MB })}
-                </p>
-              )}
-              {files.length > 0 && !fileTooLarge && (
-                <p className="send-step__meta">
-                  {files.length > 1
-                    ? `${files.length} ${t('send.files')} · ${formatSize(totalSize)}`
-                    : <><strong>{files[0].name}</strong> · {formatSize(files[0].size)}</>
-                  }
-                </p>
+              {mode === 'text' ? (
+                <>
+                  <textarea
+                    className="send-textarea"
+                    value={text}
+                    onChange={(e) => setText(e.target.value)}
+                    placeholder={t('send.text.placeholder')}
+                    aria-label={t('send.step1.text')}
+                    spellCheck={false}
+                  />
+                  {textTooLarge && (
+                    <p className="send-step__error">
+                      {t('send.error.texttoolarge', { size: Math.ceil(textBytes / 1024), max: Math.floor(MAX_TEXT_BYTES / 1024) })}
+                    </p>
+                  )}
+                  {text.length > 0 && !textTooLarge && (
+                    <p className="send-step__meta">
+                      {t('send.text.count', { count: text.length })}
+                    </p>
+                  )}
+                </>
+              ) : (
+                <>
+                  <DropZone files={files} onFiles={setFiles} />
+                  {fileTooLarge && (
+                    <p className="send-step__error">
+                      {t('send.error.toolarge', { size: formatSize(totalSize), max: MAX_FILE_SIZE_MB })}
+                    </p>
+                  )}
+                  {files.length > 0 && !fileTooLarge && (
+                    <p className="send-step__meta">
+                      {files.length > 1
+                        ? `${files.length} ${t('send.files')} · ${formatSize(totalSize)}`
+                        : <><strong>{files[0].name}</strong> · {formatSize(files[0].size)}</>
+                      }
+                    </p>
+                  )}
+                </>
               )}
             </div>
 
@@ -242,7 +330,7 @@ export default function Send() {
       {/* ── Done ── */}
       {status === 'done' && result && (
         <div className="fade-in">
-          <CodeDisplay code={result.code} passphrase={result.passphrase} deleteToken={result.deleteToken} fileCount={result.fileCount} />
+          <CodeDisplay code={result.code} passphrase={result.passphrase} deleteToken={result.deleteToken} fileCount={result.fileCount} kind={result.kind} />
           <button className="btn btn--secondary send-again" onClick={reset}>
             {t('send.again')}
           </button>

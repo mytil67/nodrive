@@ -21,7 +21,7 @@ export async function checkServerHealth() {
  * Upload un ou plusieurs fichiers chiffrés.
  *
  * @param {string} code
- * @param {{ encrypted: Uint8Array, name: string, size: number }[]} encryptedFiles
+ * @param {{ encrypted: Uint8Array, name: string, size: number, kind?: 'text' }[]} encryptedFiles
  * @param {string} salt
  * @param {string} verifier - preuve de mot de passe (hex), stockée dans les métadonnées
  * @param {(pct: number) => void} onProgress
@@ -56,7 +56,10 @@ export async function uploadEncryptedFiles(code, encryptedFiles, salt, verifier,
         // Sur le dernier chunk : on déclare aussi le nombre de chunks par fichier
         // (chunks) pour que le serveur valide la complétude de CHAQUE fichier (#6).
         isLastOverall
-          ? encryptedFiles.map((f, i) => ({ name: f.name, size: f.size, chunks: fileChunkCounts[i] }))
+          ? encryptedFiles.map((f, i) => ({
+              name: f.name, size: f.size, chunks: fileChunkCounts[i],
+              ...(f.kind === 'text' ? { kind: 'text' } : {}),
+            }))
           : null
       );
 

@@ -149,6 +149,10 @@ export default async function handler(req, res) {
               (!Number.isInteger(meta.chunks) || meta.chunks < 1 || meta.chunks > MAX_CHUNKS_PER_FILE)) {
             throw new Error('invalid chunks');
           }
+          // kind : optionnel ; seule la valeur 'text' est reconnue (mode pastebin).
+          if (meta.kind !== undefined && meta.kind !== 'text') {
+            throw new Error('invalid kind');
+          }
         }
       } catch {
         return res.status(400).json({ error: 'Métadonnées des fichiers invalides' });
@@ -197,6 +201,7 @@ export default async function handler(req, res) {
           size:         fileMetas[f].size,
           chunkCount:   fileChunks.length,
           chunkUrls:    fileChunks.map(b => b.url),
+          ...(fileMetas[f].kind === 'text' ? { kind: 'text' } : {}),
         });
       }
 

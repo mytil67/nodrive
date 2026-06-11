@@ -709,3 +709,93 @@ describe('POST /api/upload/chunk — complétude des chunks', async () => {
     expect(res.statusCode).toBe(400);
   });
 });
+
+// ── Tests mode texte (pastebin) — métadonnée kind ───────────────────────────
+
+describe('Mode texte (kind) — upload et info', async () => {
+  const { default: uploadHandler } = await import('../api/upload/chunk.js');
+  const { default: infoHandler }   = await import('../api/file/[code]/info.js');
+
+  function uploadReq(headers) {
+    return {
+      method: 'POST',
+      headers,
+      async *[Symbol.asyncIterator]() { yield Buffer.from('encrypted-text'); },
+    };
+  }
+
+  // Dernier (et unique) chunk d'un transfert texte mono-fichier.
+  function textUploadHeaders(filesMeta) {
+    return {
+      'x-blob-code':    'AB3K7P',
+      'x-chunk-index':  '0',
+      'x-chunk-total':  '1',
+      'x-file-index':   '0',
+      'x-file-total':   '1',
+      'x-blob-salt':    'a'.repeat(64),
+      'x-blob-verifier': TEST_VERIFIER,
+      'x-blob-files':   Buffer.from(JSON.stringify(filesMeta)).toString('base64'),
+    };
+  }
+
+  it('persiste kind:text dans les métadonnées du transfert', async () => {
+    const req = uploadReq(textUploadHeaders([
+      { name: 'snippet.txt', size: 42, chunks: 1, kind: 'text' },
+    ]));
+    const res = createMockRes();
+
+    await uploadHandler(req, res);
+
+    expect(res.statusCode).toBe(200);
+    const meta = JSON.parse(blobStore.get('metadata/AB3K7P.json'));
+    expect(meta.files[0].kind).toBe('text');
+  });
+
+  it('rejette (400) un kind inconnu', async () => {
+    const req = uploadReq(textUploadHeaders([
+      { name: 'evil.bin', size: 42, chunks: 1, kind: 'executable' },
+    ]));
+    const res = createMockRes();
+
+    await uploadHandler(req, res);
+
+    expect(res.statusCode).toBe(400);
+    expect(blobStore.has('metadata/AB3K7P.json')).toBe(false);
+  });
+
+  it('info expose kind=text (aperçu) et le kind par fichier avec verifier', async () => {
+    seedTransfer(createTestMetadata({
+      files: [{
+        originalName: 'snippet.txt',
+        size: 42,
+        chunkCount: 1,
+        chunkUrls: ['https://blob.test/transfers/AB3K7P/f000-chunk-000.enc'],
+        kind: 'text',
+      }],
+    }));
+
+    // Aperçu sans verifier : kind visible, pas les noms
+    const resPreview = createMockRes();
+    await infoHandler(createMockReq('GET', { code: 'AB3K7P' }), resPreview);
+    expect(resPreview.statusCode).toBe(200);
+    expect(resPreview._body.kind).toBe('text');
+    expect(resPreview._body.files).toBeUndefined();
+
+    // Avec verifier : kind aussi présent par fichier
+    const resFull = createMockRes();
+    await infoHandler(
+      createMockReq('GET', { code: 'AB3K7P' }, { 'x-blob-verifier': TEST_VERIFIER }),
+      resFull
+    );
+    expect(resFull.statusCode).toBe(200);
+    expect(resFull._body.files[0].kind).toBe('text');
+  });
+
+  it('info expose kind=files pour un transfert de fichiers classique', async () => {
+    seedTransfer();
+    const res = createMockRes();
+    await infoHandler(createMockReq('GET', { code: 'AB3K7P' }), res);
+    expect(res.statusCode).toBe(200);
+    expect(res._body.kind).toBe('files');
+  });
+});

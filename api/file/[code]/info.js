@@ -104,12 +104,17 @@ export default async function handler(req, res) {
       downloadCount: meta.downloadCount,
       fileCount:     meta.files.length,
       totalSize:     meta.totalSize,
+      // Type de transfert : 'text' (pastebin) si tous les éléments sont du
+      // texte, sinon 'files'. Non sensible (ne révèle pas le contenu) — permet
+      // à l'UI de basculer en mode texte (thème orange) dès l'aperçu.
+      kind:          meta.files.every((f) => f.kind === 'text') ? 'text' : 'files',
     };
     if (includeFiles) {
       payload.files = meta.files.map((f) => ({
         originalName: f.originalName,
         size:         f.size,
         chunkCount:   f.chunkCount || 0,
+        ...(f.kind === 'text' ? { kind: 'text' } : {}),
       }));
     }
 
