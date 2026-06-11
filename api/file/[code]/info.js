@@ -1,7 +1,10 @@
 /**
  * GET /api/file/:code/info
  *
- * Retourne les métadonnées publiques d'un transfert.
+ * Retourne les métadonnées d'un transfert. Les NOMS de fichiers ne sont inclus
+ * que si l'appelant fournit un verifier valide (preuve de mot de passe) via
+ * l'en-tête x-blob-verifier ; sinon seul un sous-ensemble non sensible est
+ * renvoyé (sel, expiration, nombre de fichiers, taille totale).
  *
  * Anti-énumération : le temps de réponse est uniformisé. Tous les chemins
  * (succès, code mal formé, introuvable, expiré, quota atteint) répondent après
@@ -12,9 +15,17 @@
  */
 
 import { list } from '@vercel/blob';
+import { timingSafeEqual } from 'crypto';
 
 const BLOB_TOKEN = () => process.env.BLOB_READ_WRITE_TOKEN;
-const CODE_REGEX = /^[A-Z2-9]{6}$/;
+const CODE_REGEX     = /^[A-Z2-9]{6}$/;
+const VERIFIER_REGEX = /^[0-9a-f]{64}$/;
+
+/** Comparaison en temps constant de deux chaînes hex de même format. */
+function safeEqual(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string' || a.length !== b.length) return false;
+  return timingSafeEqual(Buffer.from(a), Buffer.from(b));
+}
 
 // Plancher de temps de réponse (ms). Surchargé à 0 dans les tests pour la vitesse.
 const MIN_RESPONSE_MS = () => parseInt(process.env.INFO_MIN_RESPONSE_MS || '500', 10);
@@ -70,19 +81,39 @@ export default async function handler(req, res) {
       return respond(start, res, 410, { error: 'Format de transfert non supporté' });
     }
 
-    const files = meta.files.map((f) => ({
-      originalName: f.originalName,
-      size:         f.size,
-      chunkCount:   f.chunkCount || 0,
-    }));
+    // Les NOMS de fichiers sont des données sensibles : on ne les révèle qu'à un
+    // client capable de prouver la connaissance du mot de passe (verifier). Sans
+    // verifier valide, on ne renvoie que le strict nécessaire — sel (requis pour
+    // dériver la clé), expiration, nombre de fichiers et taille totale — pour
+    // l'aperçu, sans divulguer les noms à quiconque possède seulement le code.
+    const provided = (req.headers['x-blob-verifier'] || '').toLowerCase();
+    let includeFiles = false;
+    if (!meta.verifier) {
+      includeFiles = true; // transfert legacy non protégé → rien à cacher
+    } else if (provided) {
+      if (!VERIFIER_REGEX.test(provided) || !safeEqual(provided, meta.verifier)) {
+        return respond(start, res, 403, { error: 'Mot de passe incorrect' });
+      }
+      includeFiles = true;
+    }
 
-    return respond(start, res, 200, {
-      files,
+    const payload = {
       salt:          meta.salt,
       expiresAt:     meta.expiresAt,
       maxDownloads:  meta.maxDownloads,
       downloadCount: meta.downloadCount,
-    });
+      fileCount:     meta.files.length,
+      totalSize:     meta.totalSize,
+    };
+    if (includeFiles) {
+      payload.files = meta.files.map((f) => ({
+        originalName: f.originalName,
+        size:         f.size,
+        chunkCount:   f.chunkCount || 0,
+      }));
+    }
+
+    return respond(start, res, 200, payload);
   } catch (err) {
     console.error('[info] Erreur :', err.message);
     return respond(start, res, 500, { error: 'Erreur interne' });

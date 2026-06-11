@@ -123,8 +123,16 @@ function sendChunk(code, chunkData, chunkIndex, chunkTotal, fileIndex, fileTotal
   });
 }
 
-export async function getFileInfo(code) {
-  const res  = await fetch(`/api/file/${encodeURIComponent(code)}/info`);
+/**
+ * Récupère les infos d'un transfert.
+ * Sans `verifier` : sous-ensemble non sensible (sel, expiration, nombre de
+ * fichiers, taille totale) — les noms de fichiers sont masqués.
+ * Avec un `verifier` valide : inclut les noms de fichiers (et renvoie 403 si le
+ * mot de passe est incorrect).
+ */
+export async function getFileInfo(code, verifier) {
+  const opts = verifier ? { headers: { 'x-blob-verifier': verifier } } : undefined;
+  const res  = await fetch(`/api/file/${encodeURIComponent(code)}/info`, opts);
   const body = await res.json().catch(() => ({}));
   if (!res.ok) {
     const err = new Error(body.error || `Erreur HTTP ${res.status}`);

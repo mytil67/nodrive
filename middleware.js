@@ -185,9 +185,13 @@ export default async function middleware(request) {
   response.headers.set('X-RateLimit-Remaining', String(remaining));
 
   // ── Traquer les échecs pour l'anti-énumération ──
-  // 404/410 : code inconnu/expiré. 403 : verifier invalide (mot de passe
-  // erroné) — throttle aussi les tentatives de brute-force online du mot de passe.
-  if (isFileEndpoint && (response.status === 404 || response.status === 410 || response.status === 403)) {
+  // Seuls 404 (code inconnu) et 410 (expiré/épuisé) signalent une énumération de
+  // codes. On NE compte PAS les 403 (verifier invalide) : un 403 prouve que le
+  // code EXISTE — c'est une erreur de mot de passe, pas de l'énumération. Les
+  // compter bloquait toute l'IP (faux positif sur NAT/IP partagée dès qu'un
+  // destinataire légitime se trompe de mot de passe). Le brute-force de mot de
+  // passe reste borné par le rate limiter (/api/file) + le coût PBKDF2 client.
+  if (isFileEndpoint && (response.status === 404 || response.status === 410)) {
     recordEnumFailure(ip);
   }
 

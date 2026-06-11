@@ -513,6 +513,61 @@ describe('GET /api/file/:code/info — temps de réponse uniforme', async () => 
   });
 });
 
+// ── Tests info : noms de fichiers gated par le verifier (#3) ─────────────────
+
+describe('GET /api/file/:code/info — noms protégés par le verifier', async () => {
+  const { default: infoHandler } = await import('../api/file/[code]/info.js');
+  const VERIFIER = 'c'.repeat(64);
+
+  it('masque les noms de fichiers sans verifier (transfert protégé)', async () => {
+    seedTransfer(createTestMetadata({ verifier: VERIFIER }));
+    const req = createMockReq('GET', { code: 'AB3K7P' });
+    const res = createMockRes();
+
+    await infoHandler(req, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(res._body.files).toBeUndefined();        // aucun nom divulgué
+    expect(res._body.fileCount).toBe(1);            // mais le nombre, oui
+    expect(res._body.totalSize).toBe(1024);         // et la taille totale
+    expect(res._body.salt).toBe('a'.repeat(64));    // et le sel (requis)
+  });
+
+  it('révèle les noms avec le bon verifier', async () => {
+    seedTransfer(createTestMetadata({ verifier: VERIFIER }));
+    const req = createMockReq('GET', { code: 'AB3K7P' }, { 'x-blob-verifier': VERIFIER });
+    const res = createMockRes();
+
+    await infoHandler(req, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(res._body.files).toHaveLength(1);
+    expect(res._body.files[0].originalName).toBe('test.pdf');
+  });
+
+  it('retourne 403 avec un mauvais verifier (mot de passe incorrect)', async () => {
+    seedTransfer(createTestMetadata({ verifier: VERIFIER }));
+    const req = createMockReq('GET', { code: 'AB3K7P' }, { 'x-blob-verifier': 'd'.repeat(64) });
+    const res = createMockRes();
+
+    await infoHandler(req, res);
+
+    expect(res.statusCode).toBe(403);
+    expect(res._body.files).toBeUndefined();
+  });
+
+  it('reste compatible avec un transfert legacy sans verifier (noms visibles)', async () => {
+    seedTransfer(createTestMetadata()); // pas de verifier → rien à protéger
+    const req = createMockReq('GET', { code: 'AB3K7P' });
+    const res = createMockRes();
+
+    await infoHandler(req, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(res._body.files).toHaveLength(1);
+  });
+});
+
 // ── Tests download : verifier ───────────────────────────────────────────────
 
 describe('GET /api/file/:code/download — verifier', async () => {

@@ -63,7 +63,20 @@ export default function Receive() {
       setProgress(0);
       setSubLabel('');
 
-      const files = fileInfo.files;
+      const { key: cryptoKey, verifier } = await deriveKeyAndVerifier(pass, fileInfo.salt, 'decrypt');
+
+      // Récupérer les noms de fichiers : ils ne sont révélés qu'avec le bon
+      // verifier (preuve de mot de passe). Un mot de passe erroné est détecté
+      // ici (403), avant tout téléchargement — rien n'est consommé.
+      let files;
+      try {
+        const detailed = await getFileInfo(code, verifier);
+        files = detailed.files;
+      } catch (err) {
+        if (err.status === 403) throw new Error(t('receive.error.badpassword'));
+        throw err;
+      }
+      if (!files || !files.length) throw new Error(t('receive.error.download'));
       const totalFiles = files.length;
 
       // Calculer le nombre total de chunks pour la progression globale
@@ -73,7 +86,6 @@ export default function Receive() {
       }
       let chunksDownloaded = 0;
 
-      const { key: cryptoKey, verifier } = await deriveKeyAndVerifier(pass, fileInfo.salt, 'decrypt');
       const fetchOpts = { headers: { 'x-blob-verifier': verifier } };
       const downloaded = [];
 
@@ -204,9 +216,10 @@ export default function Receive() {
 
   const showInput = status === 'idle' || status === 'loading' || status === 'error';
 
-  // Calculs multi-fichier
-  const totalSize = fileInfo?.files?.reduce((s, f) => s + f.size, 0) || 0;
-  const fileCount = fileInfo?.files?.length || 0;
+  // Aperçu : on s'appuie sur le sous-ensemble non sensible renvoyé par /info
+  // (les noms ne sont récupérés qu'au moment du téléchargement, avec le verifier).
+  const totalSize = fileInfo?.totalSize || 0;
+  const fileCount = fileInfo?.fileCount || 0;
 
   // Temps restant en format lisible
   function formatRemaining() {
@@ -258,27 +271,13 @@ export default function Receive() {
       {status === 'ready' && fileInfo && (
         <section className="file-ready fade-in">
           <div className="file-preview">
-            {fileCount === 1 ? (
-              <>
-                <p className="file-name">{fileInfo.files[0].originalName}</p>
-                <p className="file-meta">{formatSize(fileInfo.files[0].size)}</p>
-              </>
-            ) : (
-              <>
-                <p className="file-name">
-                  {fileCount} {t('receive.files.count')}
-                </p>
-                <ul className="file-list file-list--receive">
-                  {fileInfo.files.map((f) => (
-                    <li key={`${f.originalName}-${f.size}`} className="file-list__item fade-in">
-                      <span className="file-list__name">{f.originalName}</span>
-                      <span className="file-list__size">{formatSize(f.size)}</span>
-                    </li>
-                  ))}
-                </ul>
-                <p className="file-meta">{formatSize(totalSize)}</p>
-              </>
-            )}
+            {/* Aperçu sans les noms : ils restent confidentiels tant que le mot
+                de passe (verifier) n'est pas fourni — voir api/.../info.js (#3). */}
+            <p className="file-name">
+              {fileCount} {fileCount > 1 ? t('receive.files.count') : t('receive.files.one')}
+            </p>
+            <p className="file-meta">{formatSize(totalSize)}</p>
+            <p className="file-names-hidden">{t('receive.names.hidden')}</p>
             <p className="file-expiry-info">
               <span className="file-expiry-info__single">{t('receive.expires.single')}</span>
               <span className="file-expiry-info__time">{t('receive.expires.time', { remaining: formatRemaining() })}</span>
