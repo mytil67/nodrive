@@ -772,6 +772,13 @@ a:hover {
   color: var(--color-muted);
 }
 
+.file-names-hidden {
+  font-size: 0.8rem;
+  color: var(--color-muted);
+  font-style: italic;
+  margin-top: 0.35rem;
+}
+
 /* ---- Boutons ---- */
 .btn {
   display: inline-flex;

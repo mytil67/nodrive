@@ -123,8 +123,16 @@ function sendChunk(code, chunkData, chunkIndex, chunkTotal, fileIndex, fileTotal
   });
 }
 
-export async function getFileInfo(code) {
-  const res  = await fetch(`/api/file/${encodeURIComponent(code)}/info`);
+/**
+ * Récupère les infos d'un transfert.
+ * Sans `verifier` : sous-ensemble non sensible (sel, expiration, nombre de
+ * fichiers, taille totale) — les noms de fichiers sont masqués.
+ * Avec un `verifier` valide : inclut les noms de fichiers (et renvoie 403 si le
+ * mot de passe est incorrect).
+ */
+export async function getFileInfo(code, verifier) {
+  const opts = verifier ? { headers: { 'x-blob-verifier': verifier } } : undefined;
+  const res  = await fetch(`/api/file/${encodeURIComponent(code)}/info`, opts);
   const body = await res.json().catch(() => ({}));
   if (!res.ok) {
     const err = new Error(body.error || `Erreur HTTP ${res.status}`);
@@ -132,29 +140,6 @@ export async function getFileInfo(code) {
     throw err;
   }
   return body;
-}
-
-/**
- * Confirme un téléchargement réussi (à appeler UNIQUEMENT après un déchiffrement
- * réussi de tous les fichiers). Déclenche la consommation du quota côté serveur.
- * Best-effort : un échec ne doit pas casser l'UX, le fichier reste protégé par
- * son expiration.
- */
-export async function confirmDownload(code, verifier) {
-  // Quelques tentatives : un échec laisserait le quota non consommé.
-  for (let attempt = 0; attempt < 3; attempt++) {
-    try {
-      const res = await fetch(`/api/file/${encodeURIComponent(code)}/confirm`, {
-        method:  'POST',
-        headers: { 'x-blob-verifier': verifier },
-      });
-      if (res.ok || res.status < 500) return; // 4xx : inutile de réessayer
-    } catch {
-      // erreur réseau → retry
-    }
-    await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
-  }
-  // silencieux — l'expiration + le cron de nettoyage restent le filet ultime
 }
 
 export async function cancelTransfer(code, deleteToken) {
