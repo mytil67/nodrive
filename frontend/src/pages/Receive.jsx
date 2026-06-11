@@ -282,11 +282,6 @@ export default function Receive() {
             <p className="file-expiry-info">
               <span className="file-expiry-info__single">{t('receive.expires.single')}</span>
               <span className="file-expiry-info__time">{t('receive.expires.time', { remaining: formatRemaining() })}</span>
-              {fileInfo.maxDownloads > 0 && (
-                <span className="file-expiry-info__downloads">
-                  {t('receive.downloads.remaining', { count: Math.max(0, fileInfo.maxDownloads - (fileInfo.downloadCount || 0)) })}
-                </span>
-              )}
             </p>
           </div>
 
