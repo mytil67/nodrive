@@ -20,4 +20,11 @@ export default defineConfig({
   define: {
     __APP_VERSION__: JSON.stringify(pkg.version),
   },
+  build: {
+    // Désactive le polyfill modulepreload de Vite : il est injecté en <script>
+    // inline dans index.html, ce que bloque notre CSP stricte (script-src 'self').
+    // Les navigateurs modernes (ceux qui supportent WebCrypto, déjà requis ici)
+    // gèrent modulepreload nativement, donc le polyfill est superflu.
+    modulePreload: { polyfill: false },
+  },
 });
