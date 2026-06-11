@@ -439,7 +439,7 @@ export default function Receive() {
             </>
           )}
           <button className="btn btn--secondary" onClick={reset}>
-            {t('receive.again')}
+            {receivedText !== null ? t('receive.again.text') : t('receive.again')}
           </button>
         </div>
       )}

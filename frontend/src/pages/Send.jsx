@@ -332,7 +332,7 @@ export default function Send() {
         <div className="fade-in">
           <CodeDisplay code={result.code} passphrase={result.passphrase} deleteToken={result.deleteToken} fileCount={result.fileCount} kind={result.kind} />
           <button className="btn btn--secondary send-again" onClick={reset}>
-            {t('send.again')}
+            {result.kind === 'text' ? t('send.again.text') : t('send.again')}
           </button>
         </div>
       )}
