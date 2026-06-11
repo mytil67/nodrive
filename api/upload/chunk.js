@@ -144,6 +144,11 @@ export default async function handler(req, res) {
           if (typeof meta.name !== 'string' || meta.name.length === 0 || meta.name.length > 500) {
             throw new Error('invalid name');
           }
+          // chunks : optionnel (clients récents) ; entier 1..MAX_CHUNKS_PER_FILE.
+          if (meta.chunks !== undefined &&
+              (!Number.isInteger(meta.chunks) || meta.chunks < 1 || meta.chunks > MAX_CHUNKS_PER_FILE)) {
+            throw new Error('invalid chunks');
+          }
         }
       } catch {
         return res.status(400).json({ error: 'Métadonnées des fichiers invalides' });
@@ -167,8 +172,16 @@ export default async function handler(req, res) {
         if (fileChunks.length < 1) {
           return res.status(400).json({ error: `Fichier ${f} : aucun chunk reçu` });
         }
-        // Dernier fichier : le header chunkTotal donne le compte exact attendu
-        if (f === fileTotal - 1 && fileChunks.length !== chunkTotal) {
+        // Nombre exact de chunks par fichier (#6) : si le client a déclaré le
+        // compte attendu, on l'exige pour CHAQUE fichier (détecte une troncature
+        // d'un fichier non-dernier). Sinon (ancien client), on ne peut valider
+        // que le dernier fichier via le header chunkTotal.
+        const expectedChunks = fileMetas[f].chunks;
+        if (expectedChunks !== undefined) {
+          if (fileChunks.length !== expectedChunks) {
+            return res.status(400).json({ error: `Fichier ${f} : nombre de chunks incohérent (attendu ${expectedChunks})` });
+          }
+        } else if (f === fileTotal - 1 && fileChunks.length !== chunkTotal) {
           return res.status(400).json({ error: `Fichier ${f} : nombre de chunks incohérent` });
         }
         // Vérifier que les indices sont continus (0, 1, 2, …, N-1)

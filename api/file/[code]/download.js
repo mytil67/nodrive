@@ -97,13 +97,16 @@ export default async function handler(req, res) {
       return res.status(410).json({ error: 'Format de transfert non supporté' });
     }
 
-    // Preuve de connaissance du mot de passe : le ciphertext n'est servi
-    // qu'aux clients capables de dériver le verifier (anti brute-force offline).
-    if (meta.verifier) {
-      const provided = (req.headers['x-blob-verifier'] || '').toLowerCase();
-      if (!VERIFIER_REGEX.test(provided) || !safeEqual(provided, meta.verifier)) {
-        return res.status(403).json({ error: 'Mot de passe incorrect' });
-      }
+    // Preuve de connaissance du mot de passe OBLIGATOIRE (#5) : le ciphertext
+    // n'est servi qu'aux clients capables de dériver le verifier. Tout transfert
+    // créé par l'app en possède un ; en son absence on refuse (fail-closed)
+    // plutôt que de servir le contenu sans aucune preuve.
+    if (!meta.verifier) {
+      return res.status(410).json({ error: 'Format de transfert non supporté' });
+    }
+    const provided = (req.headers['x-blob-verifier'] || '').toLowerCase();
+    if (!VERIFIER_REGEX.test(provided) || !safeEqual(provided, meta.verifier)) {
+      return res.status(403).json({ error: 'Mot de passe incorrect' });
     }
 
     const files = meta.files;
@@ -135,13 +138,34 @@ export default async function handler(req, res) {
       (fileIndex === files.length - 1) &&
       (chunkIndex === file.chunkUrls.length - 1);
 
-    // Télécharger et streamer le chunk
+    // Récupérer le chunk (on vérifie sa disponibilité avant toute réservation).
     const chunkUrl = file.chunkUrls[chunkIndex];
     const chunkResponse = await fetch(chunkUrl, {
       headers: { Authorization: `Bearer ${token}` },
     });
     if (!chunkResponse.ok) {
       return res.status(404).json({ error: 'Chunk introuvable' });
+    }
+
+    // Réservation atomique (#4) : le Blob store n'est pas transactionnel. Deux
+    // téléchargements finaux concurrents liraient tous deux downloadCount avant
+    // que l'un n'incrémente → double service. On sérialise via un marqueur créé
+    // en allowOverwrite:false (opération atomique « échoue si existe ») : le
+    // perdant reçoit 410. Le marqueur est TOUJOURS libéré ensuite (succès ou
+    // échec de flux) pour ne pas bloquer un téléchargement légitime.
+    let claimUrl = null;
+    if (isFinalChunk && meta.maxDownloads > 0) {
+      try {
+        const claim = await put(`transfers/${code}/.claim`, '1', {
+          access:          'private',
+          contentType:     'text/plain',
+          addRandomSuffix: false,
+          allowOverwrite:  false,
+        });
+        claimUrl = claim.url;
+      } catch {
+        return res.status(410).json({ error: 'Téléchargement déjà en cours' });
+      }
     }
 
     const contentLength = chunkResponse.headers.get('content-length');
@@ -172,6 +196,12 @@ export default async function handler(req, res) {
       } catch (e) {
         console.error('[download] Consommation quota échouée :', e.message);
       }
+    }
+
+    // Libérer la réservation dans tous les cas (le reste du transfert a déjà été
+    // purgé ou incrémenté ; en cas d'échec de flux, un autre essai peut reprendre).
+    if (claimUrl) {
+      await del(claimUrl).catch(() => {});
     }
 
     if (!res.writableEnded) res.end();
