@@ -27,3 +27,8 @@ Thumbs.db
 
 # Obsidian
 .obsidian/
+
+# Outillage local Claude Code / agents
+.agents/
+.claude/
+skills-lock.json
