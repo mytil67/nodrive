@@ -88,14 +88,14 @@ export default async function handler(req, res) {
     // l'aperçu, sans divulguer les noms à quiconque possède seulement le code.
     const provided = (req.headers['x-blob-verifier'] || '').toLowerCase();
     let includeFiles = false;
-    if (!meta.verifier) {
-      includeFiles = true; // transfert legacy non protégé → rien à cacher
-    } else if (provided) {
+    if (meta.verifier && provided) {
       if (!VERIFIER_REGEX.test(provided) || !safeEqual(provided, meta.verifier)) {
         return respond(start, res, 403, { error: 'Mot de passe incorrect' });
       }
       includeFiles = true;
     }
+    // Sans verifier valide fourni (aperçu pré-mot-de-passe) ou transfert sans
+    // verifier (legacy non supporté) : on ne divulgue jamais les noms.
 
     const payload = {
       salt:          meta.salt,

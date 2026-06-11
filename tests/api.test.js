@@ -22,7 +22,12 @@ vi.mock('@vercel/blob', () => ({
     }
     return { blobs, cursor: undefined };
   }),
-  put: vi.fn(async (pathname, content) => {
+  put: vi.fn(async (pathname, content, opts = {}) => {
+    // Honore allowOverwrite:false (création atomique « échoue si existe »),
+    // utilisé par la réservation anti-concurrence (#4) et l'upload de chunks.
+    if (opts.allowOverwrite === false && blobStore.has(pathname)) {
+      throw new Error('blob already exists');
+    }
     blobStore.set(pathname, typeof content === 'string' ? content : Buffer.from(content));
     return { pathname, url: `https://blob.test/${pathname}` };
   }),
@@ -90,11 +95,14 @@ function createMockRes() {
   return res;
 }
 
+const TEST_VERIFIER = 'c'.repeat(64);
+
 function createTestMetadata(overrides = {}) {
   return {
     code: 'AB3K7P',
     salt: 'a'.repeat(64),
     deleteToken: 'b'.repeat(32),
+    verifier: TEST_VERIFIER, // tout transfert réel en a un (verifier obligatoire, #5)
     files: [{
       originalName: 'test.pdf',
       size: 1024,
@@ -149,9 +157,9 @@ function multiChunkMetadata(chunkCount, overrides = {}) {
 describe('GET /api/file/:code/info', async () => {
   const { default: infoHandler } = await import('../api/file/[code]/info.js');
 
-  it('retourne les métadonnées pour un code valide', async () => {
+  it('retourne les métadonnées (noms inclus) avec le bon verifier', async () => {
     const meta = seedTransfer();
-    const req = createMockReq('GET', { code: 'AB3K7P' });
+    const req = createMockReq('GET', { code: 'AB3K7P' }, { 'x-blob-verifier': TEST_VERIFIER });
     const res = createMockRes();
 
     await infoHandler(req, res);
@@ -161,6 +169,7 @@ describe('GET /api/file/:code/info', async () => {
     expect(res._body.files[0].originalName).toBe('test.pdf');
     expect(res._body.salt).toBe('a'.repeat(64));
     expect(res._body).not.toHaveProperty('deleteToken');
+    expect(res._body).not.toHaveProperty('verifier');
   });
 
   it('retourne 404 pour un code inexistant', async () => {
@@ -217,7 +226,7 @@ describe('GET /api/file/:code/info', async () => {
         { originalName: 'b.jpg', size: 800, chunkCount: 1, chunkUrls: ['https://blob.test/transfers/AB3K7P/f001-chunk-000.enc'] },
       ],
     }));
-    const req = createMockReq('GET', { code: 'AB3K7P' });
+    const req = createMockReq('GET', { code: 'AB3K7P' }, { 'x-blob-verifier': TEST_VERIFIER });
     const res = createMockRes();
 
     await infoHandler(req, res);
@@ -282,9 +291,13 @@ describe('POST /api/file/:code/delete', async () => {
 describe('GET /api/file/:code/download', async () => {
   const { default: downloadHandler } = await import('../api/file/[code]/download.js');
 
+  // Le verifier étant obligatoire (#5), on l'inclut par défaut sur les requêtes
+  // qui doivent réussir.
+  const VH = { 'x-blob-verifier': TEST_VERIFIER };
+
   it('télécharge un chunk avec succès', async () => {
-    seedTransfer();
-    const req = createMockReq('GET', { code: 'AB3K7P', file: '0', chunk: '0' });
+    seedTransfer(multiChunkMetadata(2)); // chunk 0/2 = non final → pas de consommation
+    const req = createMockReq('GET', { code: 'AB3K7P', file: '0', chunk: '0' }, VH);
     const res = createMockRes();
 
     await downloadHandler(req, res);
@@ -295,7 +308,7 @@ describe('GET /api/file/:code/download', async () => {
   });
 
   it('retourne 404 pour un code inexistant', async () => {
-    const req = createMockReq('GET', { code: 'ZZZZZZ', file: '0', chunk: '0' });
+    const req = createMockReq('GET', { code: 'ZZZZZZ', file: '0', chunk: '0' }, VH);
     const res = createMockRes();
 
     await downloadHandler(req, res);
@@ -305,7 +318,7 @@ describe('GET /api/file/:code/download', async () => {
 
   it('retourne 410 pour un transfert expiré', async () => {
     seedTransfer(createTestMetadata({ expiresAt: Date.now() - 1000 }));
-    const req = createMockReq('GET', { code: 'AB3K7P', file: '0', chunk: '0' });
+    const req = createMockReq('GET', { code: 'AB3K7P', file: '0', chunk: '0' }, VH);
     const res = createMockRes();
 
     await downloadHandler(req, res);
@@ -315,7 +328,7 @@ describe('GET /api/file/:code/download', async () => {
 
   it('retourne 400 pour un index de chunk hors limites', async () => {
     seedTransfer();
-    const req = createMockReq('GET', { code: 'AB3K7P', file: '0', chunk: '99' });
+    const req = createMockReq('GET', { code: 'AB3K7P', file: '0', chunk: '99' }, VH);
     const res = createMockRes();
 
     await downloadHandler(req, res);
@@ -325,7 +338,7 @@ describe('GET /api/file/:code/download', async () => {
 
   it('retourne 400 pour un index de fichier hors limites', async () => {
     seedTransfer();
-    const req = createMockReq('GET', { code: 'AB3K7P', file: '5', chunk: '0' });
+    const req = createMockReq('GET', { code: 'AB3K7P', file: '5', chunk: '0' }, VH);
     const res = createMockRes();
 
     await downloadHandler(req, res);
@@ -335,7 +348,7 @@ describe('GET /api/file/:code/download', async () => {
 
   it('retourne 410 si quota de téléchargements atteint', async () => {
     seedTransfer(createTestMetadata({ downloadCount: 1, maxDownloads: 1 }));
-    const req = createMockReq('GET', { code: 'AB3K7P', file: '0', chunk: '0' });
+    const req = createMockReq('GET', { code: 'AB3K7P', file: '0', chunk: '0' }, VH);
     const res = createMockRes();
 
     await downloadHandler(req, res);
@@ -345,7 +358,7 @@ describe('GET /api/file/:code/download', async () => {
 
   it('ne consomme PAS le quota sur un chunk NON final', async () => {
     seedTransfer(multiChunkMetadata(2, { downloadCount: 0, maxDownloads: 2 }));
-    const req = createMockReq('GET', { code: 'AB3K7P', file: '0', chunk: '0' }); // chunk 0/2
+    const req = createMockReq('GET', { code: 'AB3K7P', file: '0', chunk: '0' }, VH); // chunk 0/2
     const res = createMockRes();
 
     await downloadHandler(req, res);
@@ -362,11 +375,11 @@ describe('GET /api/file/:code/download', async () => {
 
 describe('GET /api/file/:code/download — consommation du quota', async () => {
   const { default: downloadHandler } = await import('../api/file/[code]/download.js');
-  const VERIFIER = 'c'.repeat(64);
+  const VH = { 'x-blob-verifier': TEST_VERIFIER };
 
   it('incrémente le compteur quand le chunk FINAL est servi (sans atteindre le quota)', async () => {
     seedTransfer(multiChunkMetadata(2, { downloadCount: 0, maxDownloads: 3 }));
-    const req = createMockReq('GET', { code: 'AB3K7P', file: '0', chunk: '1' }); // chunk final
+    const req = createMockReq('GET', { code: 'AB3K7P', file: '0', chunk: '1' }, VH); // chunk final
     const res = createMockRes();
 
     await downloadHandler(req, res);
@@ -379,7 +392,7 @@ describe('GET /api/file/:code/download — consommation du quota', async () => {
 
   it('purge tout le transfert quand le chunk final atteint le quota', async () => {
     seedTransfer(createTestMetadata({ downloadCount: 0, maxDownloads: 1 })); // 1 seul chunk = final
-    const req = createMockReq('GET', { code: 'AB3K7P', file: '0', chunk: '0' });
+    const req = createMockReq('GET', { code: 'AB3K7P', file: '0', chunk: '0' }, VH);
     const res = createMockRes();
 
     await downloadHandler(req, res);
@@ -399,16 +412,17 @@ describe('GET /api/file/:code/download — consommation du quota', async () => {
       ],
     }));
     // chunk final du fichier 0 → PAS le dernier fichier → ne consomme pas
-    await downloadHandler(createMockReq('GET', { code: 'AB3K7P', file: '0', chunk: '0' }), createMockRes());
+    await downloadHandler(createMockReq('GET', { code: 'AB3K7P', file: '0', chunk: '0' }, VH), createMockRes());
     expect(JSON.parse(blobStore.get('metadata/AB3K7P.json')).downloadCount).toBe(0);
     // chunk final du dernier fichier → consomme
-    await downloadHandler(createMockReq('GET', { code: 'AB3K7P', file: '1', chunk: '0' }), createMockRes());
+    await downloadHandler(createMockReq('GET', { code: 'AB3K7P', file: '1', chunk: '0' }, VH), createMockRes());
     expect(JSON.parse(blobStore.get('metadata/AB3K7P.json')).downloadCount).toBe(1);
   });
 
   it('ne consomme rien si le verifier est invalide (rejet 403 avant tout service)', async () => {
-    seedTransfer(createTestMetadata({ verifier: VERIFIER, downloadCount: 0, maxDownloads: 1 }));
-    const req = createMockReq('GET', { code: 'AB3K7P', file: '0', chunk: '0' }); // sans verifier
+    seedTransfer(createTestMetadata({ downloadCount: 0, maxDownloads: 1 }));
+    const req = createMockReq('GET', { code: 'AB3K7P', file: '0', chunk: '0' },
+      { 'x-blob-verifier': 'd'.repeat(64) }); // mauvais verifier
     const res = createMockRes();
 
     await downloadHandler(req, res);
@@ -419,17 +433,31 @@ describe('GET /api/file/:code/download — consommation du quota', async () => {
     expect(blobStore.has('metadata/AB3K7P.json')).toBe(true);
   });
 
+  it('refuse (410) un second téléchargement final concurrent (réservation #4)', async () => {
+    seedTransfer(createTestMetadata({ downloadCount: 0, maxDownloads: 2 })); // 1 chunk = final
+    // Simule une réservation déjà posée par un téléchargement final en cours.
+    blobStore.set('transfers/AB3K7P/.claim', '1');
+    const req = createMockReq('GET', { code: 'AB3K7P', file: '0', chunk: '0' }, VH);
+    const res = createMockRes();
+
+    await downloadHandler(req, res);
+
+    expect(res.statusCode).toBe(410);
+    // Rien n'a été consommé : l'autre téléchargement détient la réservation.
+    expect(JSON.parse(blobStore.get('metadata/AB3K7P.json')).downloadCount).toBe(0);
+  });
+
   it('téléchargements répétés : le quota finit par être épuisé même sans /confirm', async () => {
     seedTransfer(createTestMetadata({ downloadCount: 0, maxDownloads: 2 })); // 1 chunk = final
     // 1er téléchargement complet → count 1
-    await downloadHandler(createMockReq('GET', { code: 'AB3K7P', file: '0', chunk: '0' }), createMockRes());
+    await downloadHandler(createMockReq('GET', { code: 'AB3K7P', file: '0', chunk: '0' }, VH), createMockRes());
     expect(JSON.parse(blobStore.get('metadata/AB3K7P.json')).downloadCount).toBe(1);
     // 2e téléchargement complet → atteint le quota → purge
-    await downloadHandler(createMockReq('GET', { code: 'AB3K7P', file: '0', chunk: '0' }), createMockRes());
+    await downloadHandler(createMockReq('GET', { code: 'AB3K7P', file: '0', chunk: '0' }, VH), createMockRes());
     expect(blobStore.has('metadata/AB3K7P.json')).toBe(false);
     // 3e tentative → transfert disparu
     const res3 = createMockRes();
-    await downloadHandler(createMockReq('GET', { code: 'AB3K7P', file: '0', chunk: '0' }), res3);
+    await downloadHandler(createMockReq('GET', { code: 'AB3K7P', file: '0', chunk: '0' }, VH), res3);
     expect(res3.statusCode).toBe(404);
   });
 });
@@ -556,15 +584,15 @@ describe('GET /api/file/:code/info — noms protégés par le verifier', async (
     expect(res._body.files).toBeUndefined();
   });
 
-  it('reste compatible avec un transfert legacy sans verifier (noms visibles)', async () => {
-    seedTransfer(createTestMetadata()); // pas de verifier → rien à protéger
+  it('ne divulgue jamais les noms pour un transfert sans verifier (fail-closed)', async () => {
+    seedTransfer(createTestMetadata({ verifier: undefined }));
     const req = createMockReq('GET', { code: 'AB3K7P' });
     const res = createMockRes();
 
     await infoHandler(req, res);
 
     expect(res.statusCode).toBe(200);
-    expect(res._body.files).toHaveLength(1);
+    expect(res._body.files).toBeUndefined();
   });
 });
 
@@ -594,13 +622,90 @@ describe('GET /api/file/:code/download — verifier', async () => {
     expect(res.statusCode).toBe(200);
   });
 
-  it('sert le chunk sans verifier pour un ancien transfert (compat)', async () => {
-    seedTransfer(createTestMetadata());
-    const req = createMockReq('GET', { code: 'AB3K7P', file: '0', chunk: '0' });
+  it('refuse (410) un transfert sans verifier — fail-closed (#5)', async () => {
+    seedTransfer(createTestMetadata({ verifier: undefined }));
+    const req = createMockReq('GET', { code: 'AB3K7P', file: '0', chunk: '0' },
+      { 'x-blob-verifier': VERIFIER });
     const res = createMockRes();
 
     await downloadHandler(req, res);
 
+    expect(res.statusCode).toBe(410);
+  });
+});
+
+// ── Tests upload : intégrité du nombre de chunks par fichier (#6) ────────────
+
+describe('POST /api/upload/chunk — complétude des chunks', async () => {
+  const { default: uploadHandler } = await import('../api/upload/chunk.js');
+
+  // Requête d'upload : req doit être async-iterable (le handler lit le body via
+  // `for await (const chunk of req)`).
+  function uploadReq(headers) {
+    return {
+      method: 'POST',
+      headers,
+      async *[Symbol.asyncIterator]() { yield Buffer.from('encrypted-chunk'); },
+    };
+  }
+
+  // Headers du DERNIER chunk (file 1, chunk 0) d'un transfert 2 fichiers, avec
+  // un compte de chunks déclaré par fichier.
+  function lastChunkHeaders(filesMeta) {
+    return {
+      'x-blob-code':    'AB3K7P',
+      'x-chunk-index':  '0',
+      'x-chunk-total':  '1',
+      'x-file-index':   '1',
+      'x-file-total':   '2',
+      'x-blob-salt':    'a'.repeat(64),
+      'x-blob-verifier':'c'.repeat(64),
+      'x-blob-files':   Buffer.from(JSON.stringify(filesMeta)).toString('base64'),
+    };
+  }
+
+  it('rejette (400) un fichier non-dernier tronqué (chunks déclarés > reçus)', async () => {
+    // file 0 : un seul chunk présent, mais on en déclare 2 → troncature.
+    blobStore.set('transfers/AB3K7P/f000-chunk-000.enc', Buffer.from('x'));
+    const req = uploadReq(lastChunkHeaders([
+      { name: 'a.bin', size: 10, chunks: 2 },
+      { name: 'b.bin', size: 5,  chunks: 1 },
+    ]));
+    const res = createMockRes();
+
+    await uploadHandler(req, res);
+
+    expect(res.statusCode).toBe(400);
+    expect(res._body.error).toMatch(/chunks/i);
+    // Le transfert n'est pas finalisé.
+    expect(blobStore.has('metadata/AB3K7P.json')).toBe(false);
+  });
+
+  it('accepte (200) quand chaque fichier a exactement le nombre de chunks déclaré', async () => {
+    blobStore.set('transfers/AB3K7P/f000-chunk-000.enc', Buffer.from('x'));
+    const req = uploadReq(lastChunkHeaders([
+      { name: 'a.bin', size: 10, chunks: 1 },
+      { name: 'b.bin', size: 5,  chunks: 1 },
+    ]));
+    const res = createMockRes();
+
+    await uploadHandler(req, res);
+
     expect(res.statusCode).toBe(200);
+    expect(res._body.ok).toBe(true);
+    expect(blobStore.has('metadata/AB3K7P.json')).toBe(true);
+  });
+
+  it('rejette (400) un nombre de chunks déclaré invalide', async () => {
+    blobStore.set('transfers/AB3K7P/f000-chunk-000.enc', Buffer.from('x'));
+    const req = uploadReq(lastChunkHeaders([
+      { name: 'a.bin', size: 10, chunks: 0 }, // 0 invalide
+      { name: 'b.bin', size: 5,  chunks: 1 },
+    ]));
+    const res = createMockRes();
+
+    await uploadHandler(req, res);
+
+    expect(res.statusCode).toBe(400);
   });
 });

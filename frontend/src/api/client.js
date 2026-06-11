@@ -53,7 +53,11 @@ export async function uploadEncryptedFiles(code, encryptedFiles, salt, verifier,
       const isLastOverall = (fi === fileTotal - 1) && (ci === chunkTotal - 1);
 
       const result = await sendChunk(code, chunk, ci, chunkTotal, fi, fileTotal, salt, verifier,
-        isLastOverall ? encryptedFiles.map(f => ({ name: f.name, size: f.size })) : null
+        // Sur le dernier chunk : on déclare aussi le nombre de chunks par fichier
+        // (chunks) pour que le serveur valide la complétude de CHAQUE fichier (#6).
+        isLastOverall
+          ? encryptedFiles.map((f, i) => ({ name: f.name, size: f.size, chunks: fileChunkCounts[i] }))
+          : null
       );
 
       chunksUploaded++;
